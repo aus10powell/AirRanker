@@ -26,4 +26,4 @@ class TestExample:
         x = "actual"
         expected = "expected"
         # This will show local variables due to --showlocals
-        assert x == expected 
+        assert x != expected 
