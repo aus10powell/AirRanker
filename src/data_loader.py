@@ -34,19 +34,25 @@ class AirbnbDataLoader:
                 'review_scores_cleanliness', 'review_scores_value', 'instant_bookable'
             ]
             if not all(col in listings_df.columns for col in required_listing_columns):
-                logger.error("Missing required columns in listings data")
+                missing_cols = [col for col in required_listing_columns if col not in listings_df.columns]
+                logger.error(f"Missing required columns in listings data: {missing_cols}")
+                logger.error(f"Available columns: {listings_df.columns.tolist()}")
                 return False
                 
         if reviews_df is not None:
             required_review_columns = ['listing_id', 'id', 'date', 'reviewer_id', 'comments']
             if not all(col in reviews_df.columns for col in required_review_columns):
-                logger.error("Missing required columns in reviews data")
+                missing_cols = [col for col in required_review_columns if col not in reviews_df.columns]
+                logger.error(f"Missing required columns in reviews data: {missing_cols}")
+                logger.error(f"Available columns: {reviews_df.columns.tolist()}")
                 return False
                 
         if calendar_df is not None:
             required_calendar_columns = ['listing_id', 'date', 'available', 'price', 'minimum_nights']
             if not all(col in calendar_df.columns for col in required_calendar_columns):
-                logger.error("Missing required columns in calendar data")
+                missing_cols = [col for col in required_calendar_columns if col not in calendar_df.columns]
+                logger.error(f"Missing required columns in calendar data: {missing_cols}")
+                logger.error(f"Available columns: {calendar_df.columns.tolist()}")
                 return False
                 
         return True
@@ -56,6 +62,10 @@ class AirbnbDataLoader:
         Process listings data with specific cleaning and transformations.
         """
         try:
+            # Rename id to listing_id if it exists
+            if 'id' in listings_df.columns and 'listing_id' not in listings_df.columns:
+                listings_df = listings_df.rename(columns={'id': 'listing_id'})
+            
             # Convert listing_id to int
             listings_df['listing_id'] = listings_df['listing_id'].astype(int)
             
@@ -162,13 +172,9 @@ class AirbnbDataLoader:
             calendar_path = os.path.join(self.data_dir, f'calendar.parquet')
             
             # Load data
-            listings_df = pd.read_csv(listings_path) if os.path.exists(listings_path) else None
-            reviews_df = pd.read_csv(reviews_path) if os.path.exists(reviews_path) else None
-            calendar_df = pd.read_csv(calendar_path) if os.path.exists(calendar_path) else None
-            
-            # Validate data
-            if not self.validate_data(listings_df, reviews_df, calendar_df):
-                return None, None, None
+            listings_df = pd.read_parquet(listings_path) if os.path.exists(listings_path) else None
+            reviews_df = pd.read_parquet(reviews_path) if os.path.exists(reviews_path) else None
+            calendar_df = pd.read_parquet(calendar_path) if os.path.exists(calendar_path) else None
             
             # Process each dataset if it exists
             if listings_df is not None:
@@ -177,6 +183,10 @@ class AirbnbDataLoader:
                 reviews_df = self.process_reviews(reviews_df)
             if calendar_df is not None:
                 calendar_df = self.process_calendar(calendar_df)
+            
+            # Validate data
+            if not self.validate_data(listings_df, reviews_df, calendar_df):
+                return None, None, None
             
             logger.info(f"Successfully loaded and processed data for {city}")
             return listings_df, reviews_df, calendar_df
