@@ -1,7 +1,15 @@
+"""
+Pytest configuration file to set up the Python path.
+"""
 import pytest
 import os
 import tempfile
 import pandas as pd
+import sys
+
+# Add the project root directory to the Python path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
 
 @pytest.fixture(scope="session")
 def test_data_dir():
