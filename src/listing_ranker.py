@@ -5,7 +5,7 @@ import pandas as pd
 from pprint import pprint
 
 class ListingRanker:
-    def __init__(self, model='phi4'):
+    def __init__(self, model='phi3'):
         self.llm = model
     
     def create_pairwise_ranking_prompt(self, candidate_listings, user_history):
@@ -27,10 +27,10 @@ class ListingRanker:
         
         # Prepare candidate listings
         candidates_context = "\nCandidate Listings:\n"
-        print("************"*50, candidate_listings.columns,"************"*50)
         for i, (_, listing) in enumerate(candidate_listings.iterrows(), 1):
             candidates_context += (
-                f"[{i}] listing_url: {listing['listing_url']}\n"
+                f"[{i}] listing_id: {listing['id']}\n"
+                f"    listing_url: {listing['listing_url']}\n"
                 f"    name: {listing['name']}\n"
                 f"    Location: {listing['review_scores_location']}\n"
                 f"    Price: ${listing['price']}/night\n"
@@ -55,7 +55,7 @@ class ListingRanker:
         - Overall suitability
 
         Provide your ranking as a strict ordering of the listing identifiers.
-        Output MUST be in the following JSON format:
+        Output MUST be in the following JSON format and include the listing_id:
         {{
             "ranking": "[1] > [2] > [3] > ..."
         }}
