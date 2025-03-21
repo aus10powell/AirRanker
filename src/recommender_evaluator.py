@@ -228,14 +228,42 @@ class RecommenderEvaluator:
         """
         # Get candidate listings (all listings minus those in history)
         history_listing_ids = set(history['listing_id'].unique())
-        candidate_listings = self.df_listings[~self.df_listings['id'].isin(history_listing_ids)]
+        
+        # Get relevant features from user's history
+        avg_price = history['listing_id'].map(self.df_listings.set_index('id')['price']).mean()
+        price_std = history['listing_id'].map(self.df_listings.set_index('id')['price']).std()
+        
+        # Filter candidates more intelligently
+        candidate_listings = self.df_listings[
+            (~self.df_listings['id'].isin(history_listing_ids)) &
+            # Price within 2 standard deviations of user's average
+            (self.df_listings['price'].between(
+                avg_price - 2 * price_std if not pd.isna(price_std) else 0,
+                avg_price + 2 * price_std if not pd.isna(price_std) else float('inf')
+            ))
+        ].copy()
         
         if len(candidate_listings) == 0:
             return {metric: 0.0 for metric in self.metrics}, []
-        
-        # Sample a subset of candidates if there are too many (for performance)
+            
+        # If too many candidates, prioritize by similarity to history
         if len(candidate_listings) > 100:
-            candidate_listings = candidate_listings.sample(100, random_state=42)
+            # Calculate average ratings from user history
+            hist_locations = history['listing_id'].map(
+                self.df_listings.set_index('id')['review_scores_location']
+            ).mean()
+            hist_cleanliness = history['listing_id'].map(
+                self.df_listings.set_index('id')['review_scores_cleanliness']
+            ).mean()
+            
+            # Score candidates by similarity to history
+            candidate_listings['similarity_score'] = (
+                (candidate_listings['review_scores_location'] - hist_locations).abs() +
+                (candidate_listings['review_scores_cleanliness'] - hist_cleanliness).abs()
+            )
+            
+            # Keep top 100 most similar candidates
+            candidate_listings = candidate_listings.nsmallest(100, 'similarity_score')
             
         # Get recommendations
         try:
