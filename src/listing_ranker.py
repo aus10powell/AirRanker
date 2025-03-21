@@ -5,7 +5,7 @@ import pandas as pd
 from pprint import pprint
 
 class ListingRanker:
-    def __init__(self, model='phi3'):
+    def __init__(self, model='phi4'):
         self.llm = model
     
     def create_pairwise_ranking_prompt(self, candidate_listings, user_history):
