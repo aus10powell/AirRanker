@@ -2,169 +2,171 @@ import ollama
 import itertools
 import json
 import pandas as pd
+import numpy as np
 from pprint import pprint
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+from scipy.sparse import csr_matrix
+from scipy.sparse.linalg import norm as sparse_norm
 
 class ListingRanker:
-    def __init__(self, model='phi4'):
-        self.llm = model
-    
-    def create_pairwise_ranking_prompt(self, candidate_listings, user_history):
+    def __init__(self, listings_df, reviews_df):
+        self.listings_df = listings_df
+        self.reviews_df = reviews_df
+        self.embedding_model = SentenceTransformer('paraphrase-MiniLM-L3-v2')  # Using smaller model
+        self.item_embeddings = None
+        self.item_relationship_matrix = None
+        self.user_item_matrix = None
+        self.listing_id_to_idx = None
+        self.idx_to_listing_id = None
+
+    def compute_semantic_relationship_matrix(self):
+        """Compute semantic relationships between items using embeddings."""
+        if self.item_embeddings is None:
+            item_prompts = self.listings_df.apply(self._construct_item_description, axis=1)
+            self.item_embeddings = self._generate_item_embeddings(item_prompts)
+        
+        # Store mapping between listing IDs and matrix indices
+        self.listing_id_to_idx = {lid: idx for idx, lid in enumerate(self.listings_df['listing_id'])}
+        self.idx_to_listing_id = {idx: lid for lid, idx in self.listing_id_to_idx.items()}
+        
+        # Compute cosine similarity between embeddings
+        self.item_relationship_matrix = cosine_similarity(self.item_embeddings)
+        return self.item_relationship_matrix
+
+    def compute_collaborative_relationship_matrix(self, interaction_data):
         """
-        Create a structured prompt for pairwise ranking of listings
+        Compute collaborative relationship matrix based on user interactions
         
         Args:
-            candidate_listings (pd.DataFrame): DataFrame of candidate listings
-            user_history (pd.DataFrame): DataFrame of user's historical listings
+            interaction_data (pd.DataFrame): DataFrame of user-item interactions
         
         Returns:
-            str: Formatted prompt for pairwise ranking
+            None: Matrix computation is deferred until needed
         """
-        # Prepare user history context with more details
-        history_context = "User's Previous Bookings and Reviews:\n"
-   
-        for _, listing in user_history.iterrows():
-            history_context += (
-                f"- Listing {listing['listing_id']}:\n"
-                f"  Comment: {listing.get('comments', 'No comment')}\n"
-                f"  Date: {listing.get('date', 'Unknown')}\n"
-            )
+        # Create user-item interaction matrix
+        self.user_item_matrix = self._create_user_item_matrix(interaction_data)
+
+    def _generate_item_embeddings(self, item_prompts):
+        """Generate embeddings for items in batches with memory management."""
+        batch_size = 16  # Reduced batch size
+        all_embeddings = []
         
-        # Prepare candidate listings with more features
-        candidates_context = "\nCandidate Listings to Rank:\n"
-        for i, (_, listing) in enumerate(candidate_listings.iterrows(), 1):
-            candidates_context += (
-                f"[{i}] listing_id: {listing['id']}\n"
-                f"    name: {listing['name']}\n"
-                f"    price: ${listing['price']}/night\n"
-                f"    room_type: {listing.get('room_type', 'Unknown')}\n"
-                f"    location_score: {listing.get('review_scores_location', 'Unknown')}\n"
-                f"    cleanliness_score: {listing.get('review_scores_cleanliness', 'Unknown')}\n"
-                f"    overall_rating: {listing.get('review_scores_rating', 'Unknown')}\n"
-            )
+        for i in range(0, len(item_prompts), batch_size):
+            batch_prompts = item_prompts[i:i + batch_size].tolist()
+            batch_embeddings = self.embedding_model.encode(batch_prompts, show_progress_bar=True)
+            all_embeddings.append(batch_embeddings)
+            
+            # Clear memory after each batch
+            import gc
+            gc.collect()
         
-        # Construct full prompt with explicit instructions
-        prompt = f"""You are an AI assistant ranking vacation rental listings based on user preferences.
+        return np.vstack(all_embeddings)
 
-{history_context}
+    def _create_user_item_matrix(self, interaction_data):
+        """Create user-item interaction matrix with memory efficiency."""
+        # Create binary interactions (1 for each review)
+        interactions = interaction_data.groupby(['reviewer_id', 'listing_id']).size().reset_index(name='interaction')
+        
+        # Get unique reviewer and listing IDs
+        reviewer_ids = interactions['reviewer_id'].unique()
+        listing_ids = self.listings_df['listing_id'].unique()
+        
+        # Create mappings
+        reviewer_to_idx = {rid: idx for idx, rid in enumerate(reviewer_ids)}
+        
+        # Create sparse matrix
+        row = [reviewer_to_idx[rid] for rid in interactions['reviewer_id']]
+        col = [self.listing_id_to_idx[lid] for lid in interactions['listing_id']]
+        data = interactions['interaction'].values
+        
+        return csr_matrix((data, (row, col)), shape=(len(reviewer_ids), len(listing_ids)))
 
-{candidates_context}
+    def _compute_collaborative_similarity(self, item1_idx, item2_idx):
+        """Compute collaborative similarity between two items efficiently."""
+        if self.user_item_matrix is None:
+            return 0.0
+        
+        # Get the column vectors for both items
+        item1_vec = self.user_item_matrix.getcol(item1_idx)
+        item2_vec = self.user_item_matrix.getcol(item2_idx)
+        
+        # Compute cosine similarity
+        dot_product = item1_vec.T.dot(item2_vec).toarray()[0, 0]
+        norm1 = sparse_norm(item1_vec)
+        norm2 = sparse_norm(item2_vec)
+        
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        
+        return dot_product / (norm1 * norm2)
 
-Task: Analyze the user's booking history and rank the candidate listings based on:
-1. Similarity to previous bookings (room type, price range, location ratings)
-2. Overall listing quality (ratings, reviews)
-3. Value for money (price vs. ratings)
-
-IMPORTANT: You must respond ONLY with a JSON object in the following format:
-{{
-    "ranking": "[1] > [2] > [3] > ..."
-}}
-
-The numbers in brackets represent the listing numbers from the candidate list above.
-Do not include any other text or explanation in your response.
-Example valid response: {{"ranking": "[1] > [3] > [2] > [4]"}}
-"""
+    def _construct_item_description(self, item):
+        """
+        Construct a detailed prompt for item embedding
+        
+        Args:
+            item (pd.Series): Series representing an item
+        
+        Returns:
+            str: Formatted prompt for embedding
+        """
+        prompt = f"""
+        Title: {item.get('name', 'N/A')}
+        Description: {item.get('description', 'N/A')}
+        Category: {item.get('room_type', 'N/A')}
+        Price: ${item.get('price', 'N/A')}
+        Location Score: {item.get('review_scores_location', 'N/A')}
+        Cleanliness Score: {item.get('review_scores_cleanliness', 'N/A')}
+        """
         return prompt
-    
-    def generate_response(self, prompt, max_chunks=100):
-        """
-        Generate response using the LLM model   
-        """
-        op = "generate_response"
-        try:
-            # Stream response from ollama
-            response = ""
-            # Correctly formatted message with role and content
-            chunk_counter = 0
-            for chunk in ollama.chat(
-                model=self.llm, 
-                messages=[{"role": "user", "content": prompt}],
-                stream=True
-            ):
-                chunk_counter += 1
-                if chunk_counter  % 100 == 0:
-                    print(f"Chunk {chunk_counter} received")
-                if chunk_counter > max_chunks:
-                    break
-                response += chunk['message']['content']
-            return response
-        except Exception as e:
-            print(f"op={op}. Error: {str(e)}")
-            return None
 
-    def pairwise_llm_ranking(self, candidate_listings, user_history):
+    def retrieve_candidates(self, user_history, candidates, interaction_data, top_k=5, alpha=0.5):
         """
-        Perform pairwise ranking using LLM
+        Retrieve and rank candidate items based on user history.
         
         Args:
-            candidate_listings (pd.DataFrame): DataFrame of candidate listings
-            user_history (pd.DataFrame): DataFrame of user's historical listings
-        
-        Returns:
-            list: Ranked listing identifiers
-        """
-        op = "pairwise_llm_ranking"
-        
-        if len(candidate_listings) == 0:
-            return []
+            user_history (pd.DataFrame): DataFrame containing user's interaction history
+            candidates (pd.DataFrame): DataFrame containing candidate items
+            interaction_data (pd.DataFrame): Full interaction data for collaborative filtering
+            top_k (int): Number of top recommendations to return
+            alpha (float): Weight between semantic and collaborative relationships (0 to 1)
             
-        if len(candidate_listings) == 1:
-            return [1]
-            
-        # Create prompt
-        prompt = self.create_pairwise_ranking_prompt(candidate_listings, user_history)
-        
-        # Get LLM response with retries
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                response = self.generate_response(prompt)
-                
-                # Clean the response - remove any non-JSON text
-                response = response.strip()
-                if response.find('{') >= 0:
-                    response = response[response.find('{'):response.rfind('}')+1]
-                
-                # Parse JSON response
-                ranking_data = json.loads(response)
-                ranking_str = ranking_data.get('ranking', '')
-                
-                # Parse ranking string and validate
-                ranked_listings = [
-                    int(item.strip('[]')) 
-                    for item in ranking_str.split('>')
-                ]
-                
-                # Validate the ranking
-                expected_numbers = set(range(1, len(candidate_listings) + 1))
-                if set(ranked_listings) == expected_numbers:
-                    return ranked_listings
-                    
-            except Exception as e:
-                print(f"Ranking attempt {attempt + 1} failed: {e}")
-                if attempt == max_retries - 1:
-                    print("All ranking attempts failed, falling back to default ordering")
-                    return list(range(1, len(candidate_listings) + 1))
-                    
-        return list(range(1, len(candidate_listings) + 1))
-    
-    def rank_listings(self, candidate_listings, user_history):
-        """
-        Main ranking method
-        
-        Args:
-            candidate_listings (pd.DataFrame): DataFrame of candidate listings
-            user_history (pd.DataFrame): DataFrame of user's historical listings
-        
         Returns:
-            pd.DataFrame: Ranked listings
+            pd.DataFrame: Top-k ranked candidate items with scores
         """
-        # Perform pairwise ranking
-        print("user history:", user_history)
-        ranked_indices = self.pairwise_llm_ranking(candidate_listings, user_history)
+        # Compute relationship matrices if not already done
+        if self.item_relationship_matrix is None:
+            self.compute_semantic_relationship_matrix()
         
-        # Reorder listings based on ranking
-        ranked_listings = candidate_listings.iloc[
-            [idx - 1 for idx in ranked_indices]
-        ]
+        if self.user_item_matrix is None:
+            self.compute_collaborative_relationship_matrix(interaction_data)
         
-        return ranked_listings
+        # Calculate scores for each candidate
+        scores = []
+        for _, candidate in candidates.iterrows():
+            total_score = 0
+            candidate_idx = self.listing_id_to_idx[candidate['listing_id']]
+            
+            for _, history_item in user_history.iterrows():
+                history_idx = self.listing_id_to_idx[history_item['listing_id']]
+                
+                # Semantic relationship
+                semantic_score = self.item_relationship_matrix[candidate_idx, history_idx]
+                
+                # Collaborative relationship - compute on demand
+                collab_score = self._compute_collaborative_similarity(candidate_idx, history_idx)
+                
+                # Combine scores
+                total_score += alpha * semantic_score + (1 - alpha) * collab_score
+            
+            scores.append({
+                'listing_id': candidate['listing_id'],
+                'score': total_score / len(user_history)
+            })
+        
+        # Convert scores to DataFrame and sort
+        scores_df = pd.DataFrame(scores)
+        ranked_candidates = candidates.merge(scores_df, on='listing_id').sort_values('score', ascending=False)
+        
+        return ranked_candidates.head(top_k)

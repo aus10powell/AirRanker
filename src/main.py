@@ -1,60 +1,50 @@
-from listing_ranker import ListingRanker
+import os
 from data_loader import AirbnbDataLoader
+from listing_ranker import ListingRanker
 from pprint import pprint
 import pandas as pd
-import os
+import numpy as np
 
 # Example Usage
 def main():
-    DATA_DIR = 'data/seattle'
-
-    # List contents of the data directory
-    if os.path.exists(DATA_DIR):
-        files = os.listdir(DATA_DIR)
-        print("Files in data directory:")
-        for file in files:
-            print(f" - {file}")
-    else:
-        print(f"Directory {DATA_DIR} does not exist")
-
     # Initialize data loader
-    data_loader = AirbnbDataLoader(data_dir=DATA_DIR)
-
-    # Load data using the data loader
-    listings_df, reviews_df, calendar_df = data_loader.load_data(city='seattle')
-
+    data_loader = AirbnbDataLoader(data_dir='data/seattle')
+    
+    # Load data
+    print("Loading data...")
+    listings_df, reviews_df, _ = data_loader.load_data(city='seattle')
     if listings_df is None or reviews_df is None:
         print("Failed to load data!")
         return
-
+        
     print("Data loaded successfully!")
-    print("Reviews data:")
+    print("\nListings columns:", listings_df.columns.tolist())
+    print("\nReviews columns:", reviews_df.columns.tolist())
+    print("\nReviews data:")
     print("reviews_df.head():", reviews_df.head())
+
+    # Initialize ranker with data
+    ranker = ListingRanker(listings_df=listings_df, reviews_df=reviews_df)
+
+    # Example: Get recommendations for a user
+    user_id = reviews_df['reviewer_id'].iloc[0]  # Get first user as example
+    user_history = listings_df[listings_df['listing_id'].isin(
+        reviews_df[reviews_df['reviewer_id'] == user_id]['listing_id']
+    )]
     
-    # Assume we have a user's history and candidate listings
-    # Using a different user ID since we're now using Seattle data
-    user_history = reviews_df[reviews_df['reviewer_id'] == 166478]  # Example user from Seattle dataset
-    candidate_listings = listings_df
+    # Get candidate items (excluding user history)
+    candidates = listings_df[~listings_df['listing_id'].isin(user_history['listing_id'])]
     
-    # Initialize ranker
-    ranker = ListingRanker(model='phi3')
-    
-    # Get ranked listings
-    ranked_recommendations = ranker.rank_listings(
-        candidate_listings, 
-        user_history
+    # Get recommendations
+    recommendations = ranker.retrieve_candidates(
+        user_history=user_history,
+        candidates=candidates,
+        interaction_data=reviews_df,
+        top_k=5
     )
-    print(f"Number of ranked recommendations: {len(ranked_recommendations)}")
-
-    print("Ranked Recommendations:")
-    #pprint(ranked_recommendations)
-
-    # Print the first 10 ranked listings by their index
-    for idx, (_, listing) in enumerate(ranked_recommendations[:10].iterrows(), 1):
-        print(f"\nRank {idx}:")
-        print(f"  Name: {listing['name']}")
-        print(f"  Price: ${listing['price']}/night")
-        print(f"  URL: {listing['listing_url']}")
+    
+    print("\nTop 5 recommendations:")
+    print(recommendations)
 
 if __name__ == '__main__':
     main()
