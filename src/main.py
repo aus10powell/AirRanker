@@ -28,6 +28,8 @@ def main():
 
     # Example: Get recommendations for a user
     user_id = reviews_df['reviewer_id'].iloc[0]  # Get first user as example
+    print(f"User ID: {user_id}")
+    print(f"User history: {reviews_df[reviews_df['reviewer_id'] == user_id]['listing_id'].tolist()}")
     user_history = listings_df[listings_df['listing_id'].isin(
         reviews_df[reviews_df['reviewer_id'] == user_id]['listing_id']
     )]
