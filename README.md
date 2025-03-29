@@ -118,8 +118,9 @@ airbnb_recommender/
 
 ## Lessons Learned
 
-- **Memory Management is Critical**: For recommendation systems with large datasets, efficiency requires on-demand computation of similarities rather than pre-computing entire matrices. Using sparse matrices and batched processing with manual garbage collection substantially reduces memory footprint.
 
-- **Hybrid Recommendation Approaches**: Combining semantic similarity (using sentence embeddings) with collaborative filtering produces more robust recommendations by leveraging both content-based information and user behavior patterns.
+1. **Memory Management Proved Essential**: We discovered that memory efficiency was crucial when working with large datasets. Instead of pre-computing entire similarity matrices, we implemented on-demand computation and utilized sparse matrices which dramatically reduced our memory footprint. Adding manual garbage collection between batches further optimized performance.
 
-- **Optimizing Transformer Models**: Using smaller transformer models (like MiniLM) with reduced batch sizes provides a good balance between accuracy and resource utilization, making it feasible to run sophisticated recommendation systems on machines with limited resources.
+2. **Hybrid Recommendation Approach Yielded Better Results**: By combining semantic similarity (based on listing content) with collaborative filtering (based on user behavior), we created more robust recommendations that captured both content relevance and user preference patterns.
+
+3. **Smaller Models Delivered Sufficient Performance**: We found that using smaller transformer models (MiniLM) with reduced batch sizes provided an excellent balance between accuracy and resource consumption, allowing our recommendation system to run efficiently even with limited computing resources.

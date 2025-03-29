@@ -8,7 +8,7 @@ import random
 from datetime import datetime
 import json
 import time
-from .listing_ranker import ListingRanker
+from listing_ranker import ListingRanker
 
 class RecommenderEvaluator:
     def __init__(self, ranker, df_listings, df_reviews, metrics=None):
@@ -230,12 +230,12 @@ class RecommenderEvaluator:
         history_listing_ids = set(history['listing_id'].unique())
         
         # Get relevant features from user's history
-        avg_price = history['listing_id'].map(self.df_listings.set_index('id')['price']).mean()
-        price_std = history['listing_id'].map(self.df_listings.set_index('id')['price']).std()
+        avg_price = history['listing_id'].map(self.df_listings.set_index('listing_id')['price']).mean()
+        price_std = history['listing_id'].map(self.df_listings.set_index('listing_id')['price']).std()
         
         # Filter candidates more intelligently
         candidate_listings = self.df_listings[
-            (~self.df_listings['id'].isin(history_listing_ids)) &
+            (~self.df_listings['listing_id'].isin(history_listing_ids)) &
             # Price within 2 standard deviations of user's average
             (self.df_listings['price'].between(
                 avg_price - 2 * price_std if not pd.isna(price_std) else 0,
@@ -250,10 +250,10 @@ class RecommenderEvaluator:
         if len(candidate_listings) > 100:
             # Calculate average ratings from user history
             hist_locations = history['listing_id'].map(
-                self.df_listings.set_index('id')['review_scores_location']
+                self.df_listings.set_index('listing_id')['review_scores_location']
             ).mean()
             hist_cleanliness = history['listing_id'].map(
-                self.df_listings.set_index('id')['review_scores_cleanliness']
+                self.df_listings.set_index('listing_id')['review_scores_cleanliness']
             ).mean()
             
             # Score candidates by similarity to history
@@ -268,14 +268,16 @@ class RecommenderEvaluator:
         # Get recommendations
         try:
             start_time = time.time()
-            ranked_recommendations = self.ranker.rank_listings(
-                candidate_listings=candidate_listings,
-                user_history=history
+            ranked_recommendations = self.ranker.retrieve_candidates(
+                user_history=history,
+                candidates=candidate_listings,
+                interaction_data=self.df_reviews,
+                top_k=k
             )
             end_time = time.time()
             
             # Extract recommended IDs
-            recommended_ids = ranked_recommendations['id'].tolist()
+            recommended_ids = ranked_recommendations['listing_id'].tolist()
             
             # Extract relevant IDs from holdout
             relevant_ids = holdout['listing_id'].unique().tolist()
@@ -469,7 +471,7 @@ class PopularityRanker:
         """Rank listings by popularity"""
         # Calculate popularity score for each candidate
         candidate_listings = candidate_listings.copy()
-        candidate_listings['popularity_score'] = candidate_listings['id'].map(
+        candidate_listings['popularity_score'] = candidate_listings['listing_id'].map(
             lambda x: self.popularity.get(x, 0)
         )
         
@@ -500,7 +502,7 @@ def run_evaluation(df_listings, df_reviews, llm_model='phi3', sample_size=20):
     print("Initializing evaluation...")
     
     # Initialize rankers
-    llm_ranker = ListingRanker(model=llm_model)
+    llm_ranker = ListingRanker(listings_df=df_listings, reviews_df=df_reviews)
     popularity_ranker = PopularityRanker(df_reviews)
     random_ranker = RandomRanker()
     
