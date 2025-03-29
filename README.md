@@ -51,6 +51,23 @@ Develop a recommendation system for Airbnb listings that can be expanded to diff
 - ✅ **Baseline Comparison:**
   - Compare **StarRanker vs. a naive popularity-based method** (e.g., most-reviewed listings).
 
+#### **Evaluation Results**
+We compared three different ranking approaches:
+1. **LLM-based Ranker**: Uses semantic understanding to rank listings
+2. **Popularity-based Ranker**: Ranks listings by number of reviews
+3. **Random Ranker**: Serves as a baseline
+
+The comparison shows the performance across different metrics:
+
+![Model Comparison](model_output/model_comparison.png)
+
+Key findings:
+- The LLM-based ranker shows superior performance in NDCG and precision metrics
+- The popularity-based ranker performs well in recall, suggesting it's good at finding relevant items
+- The random ranker serves as a useful baseline, showing the minimum expected performance
+
+Detailed evaluation results are stored in `model_output/recommender_comparison_results.json`.
+
 ---
 
 ### **4. Streamlit Integration (Future Phase)**

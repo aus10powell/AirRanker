@@ -546,10 +546,10 @@ def run_evaluation(df_listings, df_reviews, llm_model='phi3', sample_size=20):
     # Plot comparison
     print("Generating comparison plot...")
     fig = evaluator.plot_results(comparison_results, metrics=['ndcg', 'precision', 'recall', 'diversity'])
-    plt.savefig('model_comparison.png')
-    print("Comparison plot saved to model_comparison.png")
+    plt.savefig('model_output/model_comparison.png')
+    print("Comparison plot saved to model_output/model_comparison.png")
     
     # Save results
-    evaluator.save_results(comparison_results, 'recommender_comparison_results.json')
+    evaluator.save_results(comparison_results, 'model_output/recommender_comparison_results.json')
     
     return comparison_results
