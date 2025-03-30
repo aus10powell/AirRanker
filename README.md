@@ -68,6 +68,25 @@ Key findings:
 
 Detailed evaluation results are stored in `model_output/recommender_comparison_results.json`.
 
+##### **Model-Specific Results**
+
+###### **Phi-3 Model Results**
+Using the Phi-3 model for semantic understanding, we observed the following performance metrics:
+- NDCG: 0.030741
+- Precision: 0.005
+- Recall: 0.0125
+- Diversity: 0.755723
+- Coverage: 0.026883
+- Latency: 3.55 seconds
+
+The Phi-3 model demonstrated:
+- Superior performance compared to baseline methods (Popularity and Random rankers)
+- Good diversity in recommendations (0.76)
+- Reasonable latency for real-time recommendations
+- Room for improvement in precision and recall metrics
+
+*Note: Future evaluations will include Phi-4 and Llama 3.1 models for comparison.*
+
 ---
 
 ### **4. Streamlit Integration (Future Phase)**

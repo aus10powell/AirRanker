@@ -15,52 +15,64 @@ def sample_listings():
     })
 
 @pytest.fixture
-def sample_user_history():
+def sample_reviews():
     return pd.DataFrame({
-        'listing_id': [4, 5],
+        'listing_id': [1, 2],
         'reviewer_id': [166478, 166478],
         'comments': ['Great location!', 'Very clean'],
         'date': ['2024-01-01', '2024-01-02']
     })
 
 class TestListingRanker:
-    def test_init(self):
-        ranker = ListingRanker(model='phi3')
-        assert ranker.llm == 'phi3'
+    def test_init(self, sample_listings, sample_reviews):
+        ranker = ListingRanker(listings_df=sample_listings, reviews_df=sample_reviews)
+        assert isinstance(ranker.listings_df, pd.DataFrame)
+        assert isinstance(ranker.reviews_df, pd.DataFrame)
 
-    def test_create_pairwise_ranking_prompt(self, sample_listings, sample_user_history):
-        ranker = ListingRanker()
-        prompt = ranker.create_pairwise_ranking_prompt(sample_listings, sample_user_history)
+    def test_create_pairwise_ranking_prompt(self, sample_listings, sample_reviews):
+        ranker = ListingRanker(listings_df=sample_listings, reviews_df=sample_reviews)
+        prompt = ranker._construct_item_description(sample_listings.iloc[0])
         
         # Check if prompt contains key elements
-        assert "User's Previous Bookings" in prompt
-        assert "Candidate Listings" in prompt
         assert "Cozy Studio" in prompt
-        assert "Luxury Apartment" in prompt
-        assert "Beach House" in prompt
+        assert "100" in prompt
+        assert "4.5" in prompt
+        assert "4.7" in prompt
 
-    def test_rank_listings_returns_dataframe(self, sample_listings, sample_user_history):
-        ranker = ListingRanker()
-        ranked_listings = ranker.rank_listings(sample_listings, sample_user_history)
+    def test_rank_listings_returns_dataframe(self, sample_listings, sample_reviews):
+        ranker = ListingRanker(listings_df=sample_listings, reviews_df=sample_reviews)
+        user_history = sample_listings.head(1)
+        candidates = sample_listings.tail(2)
         
-        # Check if output is a DataFrame with the same number of rows
+        ranked_listings = ranker.retrieve_candidates(
+            user_history=user_history,
+            candidates=candidates,
+            interaction_data=sample_reviews
+        )
+        
+        # Check if output is a DataFrame with expected properties
         assert isinstance(ranked_listings, pd.DataFrame)
-        assert len(ranked_listings) == len(sample_listings)
-        
-        # Check if all original columns are preserved
-        for col in sample_listings.columns:
-            assert col in ranked_listings.columns
+        assert len(ranked_listings) <= len(candidates)
+        assert 'score' in ranked_listings.columns
 
     @pytest.mark.integration
-    def test_end_to_end_ranking(self, sample_listings, sample_user_history):
-        ranker = ListingRanker()
-        ranked_listings = ranker.rank_listings(sample_listings, sample_user_history)
+    def test_end_to_end_ranking(self, sample_listings, sample_reviews):
+        ranker = ListingRanker(listings_df=sample_listings, reviews_df=sample_reviews)
+        user_history = sample_listings.head(1)
+        candidates = sample_listings.tail(2)
+        
+        ranked_listings = ranker.retrieve_candidates(
+            user_history=user_history,
+            candidates=candidates,
+            interaction_data=sample_reviews
+        )
         
         # Basic validation of the ranking output
         assert len(ranked_listings) > 0
         assert isinstance(ranked_listings, pd.DataFrame)
+        assert 'score' in ranked_listings.columns
         
-        # Check if all original listings are present
-        original_ids = set(sample_listings['listing_id'])
+        # Check if all original listings are present in candidates
+        candidate_ids = set(candidates['listing_id'])
         ranked_ids = set(ranked_listings['listing_id'])
-        assert original_ids == ranked_ids 
+        assert ranked_ids.issubset(candidate_ids) 
