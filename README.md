@@ -26,6 +26,40 @@ Develop a recommendation system for Airbnb listings that can be expanded to diff
 
 ### **2. Building the Recommendation System**
 **Goal:** Implement **StarRanker-based** personalized listing ranking.  
+
+#### **How the List Ranker Works**
+The recommendation system uses a sophisticated ranking approach that combines semantic understanding with user preferences:
+
+1. **Semantic Understanding**:
+   - Each listing is converted into a rich representation using embeddings
+   - These embeddings capture the semantic meaning of:
+     - Listing descriptions
+     - Amenities
+     - Location information
+     - Review content
+
+2. **Pairwise Ranking (StarRanker)**:
+   - Instead of scoring listings individually, the system compares pairs of listings
+   - For each pair, it determines which listing is more likely to be preferred
+   - This approach is more robust than absolute scoring as it:
+     - Reduces bias from different scales of features
+     - Better captures relative preferences
+     - Works well even with sparse user data
+
+3. **Zero-Shot Capability**:
+   - The system can rank new listings without requiring historical data
+   - Uses semantic understanding to infer preferences
+   - Adapts to different regions and property types
+
+4. **Final Ranking Process**:
+   - Aggregates pairwise comparisons into a final ranking
+   - Considers multiple factors:
+     - Semantic similarity to user preferences
+     - Price range compatibility
+     - Property type preferences
+     - Location preferences
+   - Returns a personalized list of recommendations
+
 #### **Tasks:**
 - ✅ **Generate embeddings** for listings using text, amenities, and location data.
 - ✅ Implement **pairwise ranking (StarRanker) for zero-shot ranking** of listings.
@@ -72,18 +106,38 @@ Detailed evaluation results are stored in `model_output/recommender_comparison_r
 
 ###### **Phi-3 Model Results**
 Using the Phi-3 model for semantic understanding, we observed the following performance metrics:
-- NDCG: 0.030741
+- NDCG: 0.05
 - Precision: 0.005
-- Recall: 0.0125
-- Diversity: 0.755723
-- Coverage: 0.026883
-- Latency: 3.55 seconds
+- Recall: 0.05
+- Diversity: 0.75548
+- Coverage: 0.027326
+- Latency: 3.31 seconds
 
 The Phi-3 model demonstrated:
-- Superior performance compared to baseline methods (Popularity and Random rankers)
+- Superior performance compared to baseline methods (Popularity and Random rankers, both scoring 0.0 across metrics)
 - Good diversity in recommendations (0.76)
 - Reasonable latency for real-time recommendations
+- Room for improvement in precision metrics
+
+###### **all-mpnet-base-v2 Model Results**
+Using the all-mpnet-base-v2 model for semantic understanding, we observed the following performance metrics:
+- NDCG: 0.011515
+- Precision: 0.002
+- Recall: 0.01
+- Diversity: 0.750413
+- Coverage: 0.176219
+- Latency: 1.370374 seconds
+- Holdout Sample Size: 200 users
+- Test Size: 80% of eligible users
+- Minimum Reviews per User: 3
+
+The all-mpnet-base-v2 model demonstrated:
+- Good coverage (0.176) of the catalog
+- Strong diversity in recommendations (0.750)
+- Fast inference time (1.37s)
+- Superior performance compared to baseline methods (Popularity and Random rankers, both scoring 0.0 across metrics)
 - Room for improvement in precision and recall metrics
+- Consistent performance across the holdout sample
 
 *Note: Future evaluations will include Phi-4 and Llama 3.1 models for comparison.*
 

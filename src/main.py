@@ -69,14 +69,14 @@ def main():
         user_history=user_history,
         candidates=candidates,
         interaction_data=reviews_df,
-        top_k=5
+        top_k=10
     )
     
     print("\nTop 5 recommendations:")
     print(recommendations)
     
     # Run the recommender evaluation
-    run_recommender_evaluation(listings_df, reviews_df)
+    run_recommender_evaluation(listings_df, reviews_df, sample_size=200)
 
 if __name__ == '__main__':
     main()

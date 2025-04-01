@@ -467,26 +467,27 @@ class PopularityRanker:
         # Count reviews per listing
         self.popularity = df_reviews['listing_id'].value_counts()
         
-    def rank_listings(self, candidate_listings, user_history=None):
+    def retrieve_candidates(self, user_history, candidates, interaction_data=None, top_k=5):
         """Rank listings by popularity"""
         # Calculate popularity score for each candidate
-        candidate_listings = candidate_listings.copy()
-        candidate_listings['popularity_score'] = candidate_listings['listing_id'].map(
+        candidates = candidates.copy()
+        candidates['popularity_score'] = candidates['listing_id'].map(
             lambda x: self.popularity.get(x, 0)
         )
         
-        # Sort by popularity (descending)
-        return candidate_listings.sort_values('popularity_score', ascending=False)
+        # Sort by popularity (descending) and return top k
+        return candidates.sort_values('popularity_score', ascending=False).head(top_k)
 
 class RandomRanker:
     """Ranks listings randomly"""
     
-    def rank_listings(self, candidate_listings, user_history=None):
+    def retrieve_candidates(self, user_history, candidates, interaction_data=None, top_k=5):
         """Rank listings randomly"""
-        return candidate_listings.sample(frac=1).reset_index(drop=True)
+        # Return random sample of candidates
+        return candidates.sample(frac=1).reset_index(drop=True).head(top_k)
 
 # Example usage script
-def run_evaluation(df_listings, df_reviews, llm_model='phi3', sample_size=20):
+def run_evaluation(df_listings, df_reviews, llm_model=None, sample_size=200):
     """
     Run a complete evaluation of recommender systems
     
@@ -515,7 +516,7 @@ def run_evaluation(df_listings, df_reviews, llm_model='phi3', sample_size=20):
     
     print("Preparing holdout data...")
     holdout_data = evaluator.prepare_holdout_set(
-        test_size=0.2,
+        test_size=0.8,
         min_reviews=3
     )
     
