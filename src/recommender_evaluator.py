@@ -41,6 +41,10 @@ class RecommenderEvaluator:
         Returns:
             dict: Dictionary containing train and test sets
         """
+        # Set random seed for reproducibility
+        random.seed(random_state)
+        np.random.seed(random_state)
+        
         # Filter users with enough reviews
         user_review_counts = self.df_reviews['reviewer_id'].value_counts()
         eligible_users = user_review_counts[user_review_counts >= min_reviews].index.tolist()
@@ -72,7 +76,7 @@ class RecommenderEvaluator:
         
         # For each test user, split their reviews into history and holdout
         for user_id in tqdm(test_users, desc="Preparing holdout data"):
-            user_reviews = self.df_reviews[self.df_reviews['reviewer_id'] == user_id]
+            user_reviews = self.df_reviews[self.df_reviews['reviewer_id'] == user_id].copy()
             
             # Skip if user has no reviews
             if len(user_reviews) == 0:
@@ -481,13 +485,17 @@ class PopularityRanker:
 class RandomRanker:
     """Ranks listings randomly"""
     
+    def __init__(self, random_state=42):
+        self.random_state = random_state
+        np.random.seed(random_state)
+    
     def retrieve_candidates(self, user_history, candidates, interaction_data=None, top_k=5):
         """Rank listings randomly"""
-        # Return random sample of candidates
-        return candidates.sample(frac=1).reset_index(drop=True).head(top_k)
+        # Return random sample of candidates with fixed seed
+        return candidates.sample(frac=1, random_state=self.random_state).reset_index(drop=True).head(top_k)
 
 # Example usage script
-def run_evaluation(df_listings, df_reviews, llm_model=None, sample_size=200):
+def run_evaluation(df_listings, df_reviews, llm_model=None, sample_size=200, random_state=42):
     """
     Run a complete evaluation of recommender systems
     
@@ -496,16 +504,21 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, sample_size=200):
         df_reviews: DataFrame of reviews
         llm_model: Language model to use for LLM ranker
         sample_size: Number of users to evaluate
+        random_state: Random seed for reproducibility
         
     Returns:
         pd.DataFrame: Comparison results
     """
     print("Initializing evaluation...")
     
+    # Set random seeds for reproducibility
+    random.seed(random_state)
+    np.random.seed(random_state)
+    
     # Initialize rankers
     llm_ranker = ListingRanker(listings_df=df_listings, reviews_df=df_reviews)
     popularity_ranker = PopularityRanker(df_reviews)
-    random_ranker = RandomRanker()
+    random_ranker = RandomRanker(random_state=random_state)
     
     # Initialize evaluator
     evaluator = RecommenderEvaluator(

@@ -116,8 +116,25 @@ class ListingRanker:
         Description: {item.get('description', 'N/A')}
         Category: {item.get('room_type', 'N/A')}
         Price: ${item.get('price', 'N/A')}
-        Location Score: {item.get('review_scores_location', 'N/A')}
-        Cleanliness Score: {item.get('review_scores_cleanliness', 'N/A')}
+        
+        Location Information:
+        - Location Score: {item.get('review_scores_location', 'N/A')}
+        - Neighborhood: {item.get('neighbourhood', 'N/A')}
+        - Transit: {item.get('transit', 'N/A')}
+        
+        Property Details:
+        - Bedrooms: {item.get('bedrooms', 'N/A')}
+        - Bathrooms: {item.get('bathrooms', 'N/A')}
+        - Max Guests: {item.get('accommodates', 'N/A')}
+        - Instant Bookable: {item.get('instant_bookable', 'N/A')}
+        
+        Review Scores:
+        - Overall Rating: {item.get('review_scores_rating', 'N/A')}
+        - Cleanliness: {item.get('review_scores_cleanliness', 'N/A')}
+        - Communication: {item.get('review_scores_communication', 'N/A')}
+        - Value: {item.get('review_scores_value', 'N/A')}
+        - Accuracy: {item.get('review_scores_accuracy', 'N/A')}
+
         """
         return prompt
 
