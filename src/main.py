@@ -6,23 +6,28 @@ from pprint import pprint
 import pandas as pd
 import numpy as np
 
-def run_recommender_evaluation(listings_df, reviews_df, sample_size=20):
+def run_recommender_evaluation(listings_df, reviews_df, llm_model='phi3', embedding_model='all-MiniLM-L6-v2', sample_size=20):
     """
     Run the recommender evaluation pipeline
     
     Args:
         listings_df: DataFrame containing listing information
         reviews_df: DataFrame containing review information
+        llm_model: Language model to use for LLM ranker
+        embedding_model: Sentence transformer model to use for embeddings
         sample_size: Number of users to evaluate
     """
     print("\nRunning recommender evaluation...")
     print(f"Sample size: {sample_size} users")
+    print(f"Using LLM model: {llm_model}")
+    print(f"Using embedding model: {embedding_model}")
     
     # Run the evaluation
     results = run_evaluation(
         df_listings=listings_df,
         df_reviews=reviews_df,
-        llm_model='phi3',  # You can change this to other models
+        llm_model=llm_model,
+        embedding_model=embedding_model,
         sample_size=sample_size
     )
     
@@ -69,14 +74,14 @@ def main():
         user_history=user_history,
         candidates=candidates,
         interaction_data=reviews_df,
-        top_k=5
+        top_k=10
     )
     
     print("\nTop 5 recommendations:")
     print(recommendations)
     
     # Run the recommender evaluation
-    run_recommender_evaluation(listings_df, reviews_df)
+    run_recommender_evaluation(listings_df, reviews_df, llm_model='gemma3', embedding_model='all-MiniLM-L6-v2', sample_size=200)
 
 if __name__ == '__main__':
     main()

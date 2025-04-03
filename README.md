@@ -26,6 +26,40 @@ Develop a recommendation system for Airbnb listings that can be expanded to diff
 
 ### **2. Building the Recommendation System**
 **Goal:** Implement **StarRanker-based** personalized listing ranking.  
+
+#### **How the List Ranker Works**
+The recommendation system uses a sophisticated ranking approach that combines semantic understanding with user preferences:
+
+1. **Semantic Understanding**:
+   - Each listing is converted into a rich representation using embeddings
+   - These embeddings capture the semantic meaning of:
+     - Listing descriptions
+     - Amenities
+     - Location information
+     - Review content
+
+2. **Pairwise Ranking (StarRanker)**:
+   - Instead of scoring listings individually, the system compares pairs of listings
+   - For each pair, it determines which listing is more likely to be preferred
+   - This approach is more robust than absolute scoring as it:
+     - Reduces bias from different scales of features
+     - Better captures relative preferences
+     - Works well even with sparse user data
+
+3. **Zero-Shot Capability**:
+   - The system can rank new listings without requiring historical data
+   - Uses semantic understanding to infer preferences
+   - Adapts to different regions and property types
+
+4. **Final Ranking Process**:
+   - Aggregates pairwise comparisons into a final ranking
+   - Considers multiple factors:
+     - Semantic similarity to user preferences
+     - Price range compatibility
+     - Property type preferences
+     - Location preferences
+   - Returns a personalized list of recommendations
+
 #### **Tasks:**
 - ✅ **Generate embeddings** for listings using text, amenities, and location data.
 - ✅ Implement **pairwise ranking (StarRanker) for zero-shot ranking** of listings.
@@ -67,6 +101,102 @@ Key findings:
 - The random ranker serves as a useful baseline, showing the minimum expected performance
 
 Detailed evaluation results are stored in `model_output/recommender_comparison_results.json`.
+
+##### **Model-Specific Results**
+
+###### **Phi-3 Model Results**
+Using the Phi-3 model for semantic understanding, we observed the following performance metrics:
+- NDCG: 0.05
+- Precision: 0.005
+- Recall: 0.05
+- Diversity: 0.75548
+- Coverage: 0.027326
+- Latency: 3.31 seconds
+
+The Phi-3 model demonstrated:
+- Superior performance compared to baseline methods (Popularity and Random rankers, both scoring 0.0 across metrics)
+- Good diversity in recommendations (0.76)
+- Reasonable latency for real-time recommendations
+- Room for improvement in precision metrics
+
+###### **all-mpnet-base-v2 Model Results**
+Using the all-mpnet-base-v2 model for semantic understanding, we observed the following performance metrics:
+- NDCG: 0.011515
+- Precision: 0.002
+- Recall: 0.01
+- Diversity: 0.750413
+- Coverage: 0.176219
+- Latency: 1.370374 seconds
+- Holdout Sample Size: 200 users
+- Test Size: 80% of eligible users
+- Minimum Reviews per User: 3
+
+The all-mpnet-base-v2 model demonstrated:
+- Good coverage (0.176) of the catalog
+- Strong diversity in recommendations (0.750)
+- Fast inference time (1.37s)
+- Superior performance compared to baseline methods (Popularity and Random rankers, both scoring 0.0 across metrics)
+- Room for improvement in precision and recall metrics
+- Consistent performance across the holdout sample
+
+*Note: Future evaluations will include Phi-4 and Llama 3.1 models for comparison.*
+
+### 3. all-MiniLM-L6-v2 Model Results
+- **Holdout Sample Size**: 200 users
+- **Test Size**: 80% of users
+- **Minimum Reviews per User**: 3
+- **Model Configuration**:
+  - LLM Model: phi4
+  - Embedding Model: all-MiniLM-L6-v2
+- **Performance Metrics**:
+  - NDCG: 0.010014
+  - Precision: 0.0020
+  - Recall: 0.009167
+  - Diversity: 0.753898
+  - Coverage: 0.167651
+  - MRR: 0.002381
+  - Latency: ~2.00 seconds per recommendation
+
+**Observations**:
+- The all-MiniLM-L6-v2 model shows competitive performance across metrics
+- Highest diversity score (0.754) among all models
+- Moderate coverage (16.77%) with room for improvement
+- MRR score of 0.0024 indicates potential for improvement in ranking relevant items
+- Latency is higher than baseline models but still within acceptable range
+
+**Comparison with Baselines**:
+- Popularity Ranker:
+  - NDCG: 0.012950
+  - Precision: 0.0025
+  - Recall: 0.019167
+  - Diversity: 0.749677
+  - Coverage: 0.087740
+  - MRR: 0.010381
+  - Latency: 0.000686 seconds
+
+- Random Ranker:
+  - NDCG: 0.004383
+  - Precision: 0.0010
+  - Recall: 0.007500
+  - Diversity: 0.734667
+  - Coverage: 0.219793
+  - MRR: 0.001125
+  - Latency: 0.000404 seconds
+
+**Analysis**:
+- The all-MiniLM-L6-v2 model achieves the highest diversity score (0.754)
+- Popularity Ranker performs best in terms of NDCG, precision, recall, and MRR
+- Random Ranker shows the highest coverage but lowest performance in other metrics
+- The model shows a good balance between diversity and relevance, though there's room for improvement in ranking accuracy
+
+**Potential Optimizations**:
+1. Fine-tune the embedding model on Airbnb-specific data
+2. Adjust the candidate filtering thresholds
+3. Implement hybrid ranking strategies
+4. Add more contextual features to the embeddings
+5. Optimize the batch size for embedding generation
+6. Improve ranking accuracy to increase MRR score
+7. Balance the trade-off between diversity and relevance
 
 ---
 

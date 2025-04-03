@@ -10,10 +10,20 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import norm as sparse_norm
 
 class ListingRanker:
-    def __init__(self, listings_df, reviews_df):
+    """Ranks listings using semantic similarity and collaborative filtering"""
+    
+    def __init__(self, listings_df, reviews_df, embedding_model='all-MiniLM-L6-v2'):
+        """
+        Initialize the ranker
+        
+        Args:
+            listings_df: DataFrame containing listing information
+            reviews_df: DataFrame containing user reviews
+            embedding_model: Name of the sentence transformer model to use
+        """
         self.listings_df = listings_df
         self.reviews_df = reviews_df
-        self.embedding_model = SentenceTransformer('paraphrase-MiniLM-L3-v2')  # Using smaller model
+        self.embedding_model = SentenceTransformer(embedding_model)
         self.item_embeddings = None
         self.item_relationship_matrix = None
         self.user_item_matrix = None
@@ -116,8 +126,25 @@ class ListingRanker:
         Description: {item.get('description', 'N/A')}
         Category: {item.get('room_type', 'N/A')}
         Price: ${item.get('price', 'N/A')}
-        Location Score: {item.get('review_scores_location', 'N/A')}
-        Cleanliness Score: {item.get('review_scores_cleanliness', 'N/A')}
+        
+        Location Information:
+        - Location Score: {item.get('review_scores_location', 'N/A')}
+        - Neighborhood: {item.get('neighbourhood', 'N/A')}
+        - Transit: {item.get('transit', 'N/A')}
+        
+        Property Details:
+        - Bedrooms: {item.get('bedrooms', 'N/A')}
+        - Bathrooms: {item.get('bathrooms', 'N/A')}
+        - Max Guests: {item.get('accommodates', 'N/A')}
+        - Instant Bookable: {item.get('instant_bookable', 'N/A')}
+        
+        Review Scores:
+        - Overall Rating: {item.get('review_scores_rating', 'N/A')}
+        - Cleanliness: {item.get('review_scores_cleanliness', 'N/A')}
+        - Communication: {item.get('review_scores_communication', 'N/A')}
+        - Value: {item.get('review_scores_value', 'N/A')}
+        - Accuracy: {item.get('review_scores_accuracy', 'N/A')}
+
         """
         return prompt
 
