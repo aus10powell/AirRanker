@@ -141,6 +141,63 @@ The all-mpnet-base-v2 model demonstrated:
 
 *Note: Future evaluations will include Phi-4 and Llama 3.1 models for comparison.*
 
+### 3. all-MiniLM-L6-v2 Model Results
+- **Holdout Sample Size**: 200 users
+- **Test Size**: 80% of users
+- **Minimum Reviews per User**: 3
+- **Model Configuration**:
+  - LLM Model: phi4
+  - Embedding Model: all-MiniLM-L6-v2
+- **Performance Metrics**:
+  - NDCG: 0.010014
+  - Precision: 0.0020
+  - Recall: 0.009167
+  - Diversity: 0.753898
+  - Coverage: 0.167651
+  - MRR: 0.002381
+  - Latency: ~2.00 seconds per recommendation
+
+**Observations**:
+- The all-MiniLM-L6-v2 model shows competitive performance across metrics
+- Highest diversity score (0.754) among all models
+- Moderate coverage (16.77%) with room for improvement
+- MRR score of 0.0024 indicates potential for improvement in ranking relevant items
+- Latency is higher than baseline models but still within acceptable range
+
+**Comparison with Baselines**:
+- Popularity Ranker:
+  - NDCG: 0.012950
+  - Precision: 0.0025
+  - Recall: 0.019167
+  - Diversity: 0.749677
+  - Coverage: 0.087740
+  - MRR: 0.010381
+  - Latency: 0.000686 seconds
+
+- Random Ranker:
+  - NDCG: 0.004383
+  - Precision: 0.0010
+  - Recall: 0.007500
+  - Diversity: 0.734667
+  - Coverage: 0.219793
+  - MRR: 0.001125
+  - Latency: 0.000404 seconds
+
+**Analysis**:
+- The all-MiniLM-L6-v2 model achieves the highest diversity score (0.754)
+- Popularity Ranker performs best in terms of NDCG, precision, recall, and MRR
+- Random Ranker shows the highest coverage but lowest performance in other metrics
+- The model shows a good balance between diversity and relevance, though there's room for improvement in ranking accuracy
+
+**Potential Optimizations**:
+1. Fine-tune the embedding model on Airbnb-specific data
+2. Adjust the candidate filtering thresholds
+3. Implement hybrid ranking strategies
+4. Add more contextual features to the embeddings
+5. Optimize the batch size for embedding generation
+6. Improve ranking accuracy to increase MRR score
+7. Balance the trade-off between diversity and relevance
+
 ---
 
 ### **4. Streamlit Integration (Future Phase)**

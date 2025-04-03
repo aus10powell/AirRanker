@@ -10,10 +10,20 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import norm as sparse_norm
 
 class ListingRanker:
-    def __init__(self, listings_df, reviews_df):
+    """Ranks listings using semantic similarity and collaborative filtering"""
+    
+    def __init__(self, listings_df, reviews_df, embedding_model='all-MiniLM-L6-v2'):
+        """
+        Initialize the ranker
+        
+        Args:
+            listings_df: DataFrame containing listing information
+            reviews_df: DataFrame containing user reviews
+            embedding_model: Name of the sentence transformer model to use
+        """
         self.listings_df = listings_df
         self.reviews_df = reviews_df
-        self.embedding_model = SentenceTransformer('paraphrase-MiniLM-L3-v2')  # Using smaller model
+        self.embedding_model = SentenceTransformer(embedding_model)
         self.item_embeddings = None
         self.item_relationship_matrix = None
         self.user_item_matrix = None

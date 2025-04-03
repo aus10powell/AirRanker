@@ -24,7 +24,7 @@ class RecommenderEvaluator:
         self.ranker = ranker
         self.df_listings = df_listings
         self.df_reviews = df_reviews
-        self.metrics = metrics or ['ndcg', 'precision', 'recall', 'diversity', 'coverage']
+        self.metrics = metrics or ['ndcg', 'precision', 'recall', 'diversity', 'coverage', 'mrr']
         
         # Extract unique user IDs
         self.user_ids = df_reviews['reviewer_id'].unique()
@@ -217,6 +217,28 @@ class RecommenderEvaluator:
         
         return coverage
     
+    def calculate_mrr(self, recommended_ids, relevant_ids, k=10):
+        """
+        Calculate Mean Reciprocal Rank
+        
+        Args:
+            recommended_ids: List of recommended item IDs
+            relevant_ids: List of relevant item IDs
+            k: Number of recommendations to consider
+            
+        Returns:
+            float: MRR score
+        """
+        if not relevant_ids or len(recommended_ids) == 0:
+            return 0.0
+            
+        # Find the first position where a relevant item appears
+        for i, item_id in enumerate(recommended_ids[:k]):
+            if item_id in relevant_ids:
+                return 1.0 / (i + 1)
+                
+        return 0.0
+    
     def evaluate_user(self, user_id, history, holdout, k=10):
         """
         Evaluate recommendations for a single user
@@ -299,6 +321,9 @@ class RecommenderEvaluator:
                 
             if 'diversity' in self.metrics:
                 metrics_results['diversity'] = self.calculate_diversity(ranked_recommendations[:k])
+                
+            if 'mrr' in self.metrics:
+                metrics_results['mrr'] = self.calculate_mrr(recommended_ids, relevant_ids, k)
                 
             # Add latency metric
             metrics_results['latency'] = end_time - start_time
@@ -495,7 +520,7 @@ class RandomRanker:
         return candidates.sample(frac=1, random_state=self.random_state).reset_index(drop=True).head(top_k)
 
 # Example usage script
-def run_evaluation(df_listings, df_reviews, llm_model=None, sample_size=200, random_state=42):
+def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all-MiniLM-L6-v2', sample_size=200, random_state=42):
     """
     Run a complete evaluation of recommender systems
     
@@ -503,6 +528,7 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, sample_size=200, ran
         df_listings: DataFrame of listings
         df_reviews: DataFrame of reviews
         llm_model: Language model to use for LLM ranker
+        embedding_model: Sentence transformer model to use for embeddings
         sample_size: Number of users to evaluate
         random_state: Random seed for reproducibility
         
@@ -516,7 +542,7 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, sample_size=200, ran
     np.random.seed(random_state)
     
     # Initialize rankers
-    llm_ranker = ListingRanker(listings_df=df_listings, reviews_df=df_reviews)
+    llm_ranker = ListingRanker(listings_df=df_listings, reviews_df=df_reviews, embedding_model=embedding_model)
     popularity_ranker = PopularityRanker(df_reviews)
     random_ranker = RandomRanker(random_state=random_state)
     
@@ -554,12 +580,16 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, sample_size=200, ran
         sample_size=sample_size
     )
     
+    # Add model information
+    comparison_results['llm_model'] = llm_model if llm_model else 'phi3'
+    comparison_results['embedding_model'] = embedding_model
+    
     print("\nModel comparison:")
-    print(comparison_results[['model', 'ndcg', 'precision', 'recall', 'diversity', 'coverage', 'latency']])
+    print(comparison_results[['model', 'ndcg', 'precision', 'recall', 'diversity', 'coverage', 'mrr', 'latency', 'llm_model', 'embedding_model']])
     
     # Plot comparison
     print("Generating comparison plot...")
-    fig = evaluator.plot_results(comparison_results, metrics=['ndcg', 'precision', 'recall', 'diversity'])
+    fig = evaluator.plot_results(comparison_results, metrics=['ndcg', 'precision', 'recall', 'diversity', 'mrr'])
     plt.savefig('model_output/model_comparison.png')
     print("Comparison plot saved to model_output/model_comparison.png")
     
