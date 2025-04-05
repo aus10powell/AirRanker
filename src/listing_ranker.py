@@ -196,7 +196,7 @@ class ListingRanker:
         
         return None
 
-    async def retrieve_candidates_async(self, user_history, candidates, interaction_data, top_k=5, alpha=0.5):
+    async def retrieve_candidates_async(self, user_history, candidates, interaction_data, top_k=10, alpha=0.5):
         """Retrieve candidates asynchronously with improved performance"""
         if self.start_time is None:
             self.start_time = time.time()
@@ -238,7 +238,7 @@ class ListingRanker:
         llm_available = False
         try:
             # Test LLM availability with a simple prompt
-            test_response = await self._async_llm_call("Respond with 0.5")
+            test_response = await self._async_llm_call("Respond with ONLY the number 0.5")
             llm_available = test_response is not None
         except Exception as e:
             print(f"LLM test call failed: {str(e)}")
@@ -252,7 +252,7 @@ class ListingRanker:
                     candidate = candidates.iloc[idx]
                     candidate_desc = self._construct_item_description(candidate)
                     
-                    prompt = f"""Given a user's preferences and a potential Airbnb listing, rate how well the listing matches their preferences.
+                    prompt = f"""Rate how well this Airbnb listing matches the user's preferences.
 
 User preferences:
 {user_preferences}
@@ -260,16 +260,15 @@ User preferences:
 Listing to evaluate:
 {candidate_desc}
 
-Rate the match from 0.0 to 1.0, where:
-1.0 = Perfect match
-0.5 = Neutral match
-0.0 = Poor match
-
-Respond with ONLY a number between 0.0 and 1.0."""
+IMPORTANT: Respond with ONLY a single number between 0.0 and 1.0.
+Do not include any explanation or additional text.
+Example response: 0.75"""
                     
                     llm_response = await self._async_llm_call(prompt)
                     try:
-                        score = float(llm_response)
+                        # Clean the response to extract just the number
+                        cleaned_response = ''.join(c for c in llm_response if c.isdigit() or c == '.')
+                        score = float(cleaned_response)
                         llm_scores[i] = max(0.0, min(1.0, score))  # Clamp between 0 and 1
                     except:
                         print(f"Failed to parse LLM score for candidate {idx}, using 0.5")

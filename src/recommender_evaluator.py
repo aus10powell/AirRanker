@@ -260,7 +260,7 @@ class RecommenderEvaluator:
                 
         return 0.0
     
-    def evaluate_user(self, user_id, history, holdout, k=10):
+    def evaluate_user(self, user_id, history, holdout, k=10, candidates=None):
         """
         Evaluate recommendations for a single user
         
@@ -269,6 +269,7 @@ class RecommenderEvaluator:
             history: DataFrame containing user's history
             holdout: DataFrame containing user's holdout items
             k: Number of recommendations to evaluate
+            candidates: Optional DataFrame of pre-selected candidates
             
         Returns:
             dict: Dictionary containing evaluation metrics
@@ -276,94 +277,96 @@ class RecommenderEvaluator:
         # Get candidate listings (all listings minus those in history)
         history_listing_ids = set(history['listing_id'].unique())
         
-        # Get relevant features from user's history
-        avg_price = history['listing_id'].map(self.df_listings.set_index('listing_id')['price']).mean()
-        price_std = history['listing_id'].map(self.df_listings.set_index('listing_id')['price']).std()
+        # Use provided candidates if available, otherwise select candidates
+        if candidates is not None:
+            candidate_listings = candidates.copy()
+            print(f"Using {len(candidate_listings)} pre-selected candidates for evaluation")
+        else:
+            # Get relevant features from user's history
+            avg_price = history['listing_id'].map(self.df_listings.set_index('listing_id')['price']).mean()
+            price_std = history['listing_id'].map(self.df_listings.set_index('listing_id')['price']).std()
+            
+            # Filter candidates more intelligently
+            candidate_listings = self.df_listings[
+                (~self.df_listings['listing_id'].isin(history_listing_ids)) &
+                # Price within 2 standard deviations of user's average
+                (self.df_listings['price'].between(
+                    avg_price - 2 * price_std if not pd.isna(price_std) else 0,
+                    avg_price + 2 * price_std if not pd.isna(price_std) else float('inf')
+                ))
+            ].copy()
+            
+            if len(candidate_listings) == 0:
+                return {metric: 0.0 for metric in self.metrics}, []
+                
+            # If too many candidates, prioritize by similarity to history
+            if len(candidate_listings) > 100:
+                # Calculate average ratings from user history
+                hist_locations = history['listing_id'].map(
+                    self.df_listings.set_index('listing_id')['review_scores_location']
+                ).mean()
+                
+                # Sort by location score similarity
+                candidate_listings['location_score'] = candidate_listings['review_scores_location']
+                candidate_listings['location_diff'] = abs(candidate_listings['location_score'] - hist_locations)
+                candidate_listings = candidate_listings.sort_values('location_diff').head(100)
         
-        # Filter candidates more intelligently
-        candidate_listings = self.df_listings[
-            (~self.df_listings['listing_id'].isin(history_listing_ids)) &
-            # Price within 2 standard deviations of user's average
-            (self.df_listings['price'].between(
-                avg_price - 2 * price_std if not pd.isna(price_std) else 0,
-                avg_price + 2 * price_std if not pd.isna(price_std) else float('inf')
-            ))
-        ].copy()
+        # Check if any holdout items are in our candidate set
+        holdout_ids = set(holdout['listing_id'].unique())
+        candidate_ids = set(candidate_listings['listing_id'].unique())
+        overlap = holdout_ids.intersection(candidate_ids)
         
-        if len(candidate_listings) == 0:
-            return {metric: 0.0 for metric in self.metrics}, []
+        if not overlap:
+            print(f"WARNING: No overlap between {len(holdout_ids)} holdout items and {len(candidate_ids)} candidates")
+            print("This will result in zero precision/recall. Consider expanding candidate selection.")
             
-        # If too many candidates, prioritize by similarity to history
-        if len(candidate_listings) > 100:
-            # Calculate average ratings from user history
-            hist_locations = history['listing_id'].map(
-                self.df_listings.set_index('listing_id')['review_scores_location']
-            ).mean()
-            hist_cleanliness = history['listing_id'].map(
-                self.df_listings.set_index('listing_id')['review_scores_cleanliness']
-            ).mean()
-            
-            # Score candidates by similarity to history
-            candidate_listings['similarity_score'] = (
-                (candidate_listings['review_scores_location'] - hist_locations).abs() +
-                (candidate_listings['review_scores_cleanliness'] - hist_cleanliness).abs()
-            )
-            
-            # Keep top 100 most similar candidates
-            candidate_listings = candidate_listings.nsmallest(100, 'similarity_score')
-            
+            # Try to include at least some holdout items in candidates
+            if len(holdout_ids) > 0:
+                print("Adding holdout items to candidates for better evaluation...")
+                holdout_listings = self.df_listings[self.df_listings['listing_id'].isin(holdout_ids)]
+                candidate_listings = pd.concat([candidate_listings, holdout_listings])
+        
         # Get recommendations
-        try:
-            start_time = time.time()
-            ranked_recommendations = self.ranker.retrieve_candidates(
-                user_history=history,
-                candidates=candidate_listings,
-                interaction_data=self.df_reviews,
-                top_k=k
-            )
-            end_time = time.time()
+        start_time = time.time()
+        recommendations = self.ranker.retrieve_candidates(
+            user_history=history,
+            candidates=candidate_listings,
+            interaction_data=self.df_reviews,
+            top_k=k
+        )
+        latency = time.time() - start_time
+        
+        # Get recommended and relevant IDs
+        recommended_ids = recommendations['listing_id'].tolist()
+        relevant_ids = holdout['listing_id'].tolist()
+        
+        # Calculate metrics
+        metrics = {}
+        
+        # NDCG
+        if 'ndcg' in self.metrics:
+            metrics['ndcg'] = self.calculate_ndcg(recommended_ids, relevant_ids, k)
             
-            # Extract recommended IDs
-            recommended_ids = ranked_recommendations['listing_id'].tolist()
-            
-            # Extract relevant IDs from holdout
-            relevant_ids = holdout['listing_id'].unique().tolist()
-            
-            # Debug information
-            print(f"User {user_id}: {len(recommended_ids)} recommendations, {len(relevant_ids)} relevant items")
-            
-            # Calculate metrics
-            metrics_results = {}
-            
-            if 'ndcg' in self.metrics:
-                ndcg_score = self.calculate_ndcg(recommended_ids, relevant_ids, k)
-                metrics_results['ndcg'] = ndcg_score
-                print(f"  NDCG: {ndcg_score:.4f}")
+        # Precision and Recall
+        if 'precision' in self.metrics or 'recall' in self.metrics:
+            precision, recall = self.calculate_precision_recall(recommended_ids, relevant_ids, k)
+            if 'precision' in self.metrics:
+                metrics['precision'] = precision
+            if 'recall' in self.metrics:
+                metrics['recall'] = recall
                 
-            if 'precision' in self.metrics or 'recall' in self.metrics:
-                precision, recall = self.calculate_precision_recall(recommended_ids, relevant_ids, k)
-                metrics_results['precision'] = precision
-                metrics_results['recall'] = recall
-                print(f"  Precision: {precision:.4f}, Recall: {recall:.4f}")
-                
-            if 'diversity' in self.metrics:
-                diversity_score = self.calculate_diversity(ranked_recommendations[:k])
-                metrics_results['diversity'] = diversity_score
-                print(f"  Diversity: {diversity_score:.4f}")
-                
-            if 'mrr' in self.metrics:
-                mrr_score = self.calculate_mrr(recommended_ids, relevant_ids, k)
-                metrics_results['mrr'] = mrr_score
-                print(f"  MRR: {mrr_score:.4f}")
-                
-            # Add latency metric
-            metrics_results['latency'] = end_time - start_time
+        # Diversity
+        if 'diversity' in self.metrics:
+            metrics['diversity'] = self.calculate_diversity(recommendations)
             
-            return metrics_results, recommended_ids
+        # MRR
+        if 'mrr' in self.metrics:
+            metrics['mrr'] = self.calculate_mrr(recommended_ids, relevant_ids, k)
             
-        except Exception as e:
-            print(f"Error evaluating user {user_id}: {e}")
-            return {metric: 0.0 for metric in self.metrics}, []
+        # Latency
+        metrics['latency'] = latency
+        
+        return metrics, recommendations
     
     def evaluate(self, holdout_data, k=10, sample_size=None):
         """
