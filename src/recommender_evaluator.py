@@ -75,6 +75,7 @@ class RecommenderEvaluator:
         }
         
         # For each test user, split their reviews into history and holdout
+        valid_test_users = []
         for user_id in tqdm(test_users, desc="Preparing holdout data"):
             user_reviews = self.df_reviews[self.df_reviews['reviewer_id'] == user_id].copy()
             
@@ -89,17 +90,37 @@ class RecommenderEvaluator:
                 # If date sorting fails, use the original order
                 pass
             
+            # Ensure at least 2 items in history and 1 in holdout
+            if len(user_reviews) < 3:
+                continue
+                
             # Use 70% of reviews as history, 30% as holdout
-            history_size = max(1, int(len(user_reviews) * 0.7))
+            # But ensure at least 2 items in history and 1 in holdout
+            history_size = max(2, int(len(user_reviews) * 0.7))
             
+            # Ensure at least 1 item in holdout
+            if history_size >= len(user_reviews):
+                history_size = len(user_reviews) - 1
+                
             history = user_reviews.iloc[:history_size]
             holdout = user_reviews.iloc[history_size:]
             
+            # Skip if holdout is empty
+            if len(holdout) == 0:
+                continue
+                
             # Store the history and holdout
             holdout_data['user_histories'][user_id] = {
                 'history': history,
                 'holdout': holdout
             }
+            
+            valid_test_users.append(user_id)
+        
+        # Update test_users to only include valid users
+        holdout_data['test_users'] = valid_test_users
+        
+        print(f"Prepared holdout data for {len(valid_test_users)} valid test users")
         
         return holdout_data
     
@@ -308,22 +329,32 @@ class RecommenderEvaluator:
             # Extract relevant IDs from holdout
             relevant_ids = holdout['listing_id'].unique().tolist()
             
+            # Debug information
+            print(f"User {user_id}: {len(recommended_ids)} recommendations, {len(relevant_ids)} relevant items")
+            
             # Calculate metrics
             metrics_results = {}
             
             if 'ndcg' in self.metrics:
-                metrics_results['ndcg'] = self.calculate_ndcg(recommended_ids, relevant_ids, k)
+                ndcg_score = self.calculate_ndcg(recommended_ids, relevant_ids, k)
+                metrics_results['ndcg'] = ndcg_score
+                print(f"  NDCG: {ndcg_score:.4f}")
                 
             if 'precision' in self.metrics or 'recall' in self.metrics:
                 precision, recall = self.calculate_precision_recall(recommended_ids, relevant_ids, k)
                 metrics_results['precision'] = precision
                 metrics_results['recall'] = recall
+                print(f"  Precision: {precision:.4f}, Recall: {recall:.4f}")
                 
             if 'diversity' in self.metrics:
-                metrics_results['diversity'] = self.calculate_diversity(ranked_recommendations[:k])
+                diversity_score = self.calculate_diversity(ranked_recommendations[:k])
+                metrics_results['diversity'] = diversity_score
+                print(f"  Diversity: {diversity_score:.4f}")
                 
             if 'mrr' in self.metrics:
-                metrics_results['mrr'] = self.calculate_mrr(recommended_ids, relevant_ids, k)
+                mrr_score = self.calculate_mrr(recommended_ids, relevant_ids, k)
+                metrics_results['mrr'] = mrr_score
+                print(f"  MRR: {mrr_score:.4f}")
                 
             # Add latency metric
             metrics_results['latency'] = end_time - start_time
@@ -555,7 +586,8 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
     evaluator = RecommenderEvaluator(
         ranker=llm_ranker,
         df_listings=df_listings,
-        df_reviews=df_reviews
+        df_reviews=df_reviews,
+        
     )
     
     print("Preparing holdout data...")
