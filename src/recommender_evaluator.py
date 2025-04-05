@@ -542,7 +542,12 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
     np.random.seed(random_state)
     
     # Initialize rankers
-    llm_ranker = ListingRanker(listings_df=df_listings, reviews_df=df_reviews, embedding_model=embedding_model)
+    llm_ranker = ListingRanker(
+        listings_df=df_listings, 
+        reviews_df=df_reviews, 
+        embedding_model=embedding_model,
+        llm_model=llm_model or 'phi3'  # Use provided model or default to phi3
+    )
     popularity_ranker = PopularityRanker(df_reviews)
     random_ranker = RandomRanker(random_state=random_state)
     
