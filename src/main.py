@@ -77,7 +77,7 @@ def main():
     # Set retrieval parameters for evaluation
     top_k = 20
     use_pairwise = True
-    sample_size = 20
+    sample_size = 200
 
     # Get recommendations
     print("\nGetting recommendations without pair-wise ranking:")

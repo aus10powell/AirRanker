@@ -59,12 +59,12 @@ class ListingRanker:
 
     def _generate_item_embeddings(self, item_prompts):
         """Generate embeddings for items in batches with memory management."""
-        batch_size = 16  # Reduced batch size
+        batch_size = 32  # Reduced batch size
         all_embeddings = []
         
-        for i in range(0, len(item_prompts), batch_size):
+        for i in tqdm(range(0, len(item_prompts), batch_size), desc="Generating embeddings", position=0, leave=True):
             batch_prompts = item_prompts[i:i + batch_size].tolist()
-            batch_embeddings = self.embedding_model.encode(batch_prompts, show_progress_bar=True)
+            batch_embeddings = self.embedding_model.encode(batch_prompts, show_progress_bar=False)
             all_embeddings.append(batch_embeddings)
             
             # Clear memory after each batch
@@ -150,8 +150,11 @@ class ListingRanker:
 
     def _compare_pair_with_llm(self, item1, item2, user_history):
         """Compare two items using LLM to determine which is more relevant."""
+        # Convert listing IDs to strings before joining
+        user_history_str = [str(uid) for uid in user_history]
+        
         prompt = f"""Given a user's purchase history and two items, determine which item is more relevant to recommend next.
-User's purchase history: {', '.join(user_history)}
+User's purchase history: {', '.join(user_history_str)}
 Item 1: {item1['name']} - {item1['description']}
 Item 2: {item2['name']} - {item2['description']}
 
@@ -168,26 +171,83 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
         answer = response['message']['content'].strip().lower()
         return answer == '2'  # Return True if items should be swapped
 
-    def retrieve_candidates(self, user_history, candidates, interaction_data, top_k=5, alpha=0.5, use_pairwise=False):
-        """Retrieve and rank candidate items based on user history."""
-        # Compute relationship matrices if not already done
-        if not hasattr(self, 'semantic_relationship_matrix'):
-            self.compute_semantic_relationship_matrix()
-        if not hasattr(self, 'collaborative_relationship_matrix'):
-            self.compute_collaborative_relationship_matrix()
-            
-        # Get initial scores using semantic and collaborative filtering
-        retrieved = self._get_initial_scores(user_history, candidates, interaction_data, alpha)
+    def _get_initial_scores(self, user_history, candidates, alpha=0.5):
+        """
+        Calculate initial scores for candidates based on user history.
         
+        Args:
+            user_history (pd.DataFrame): DataFrame containing user's interaction history
+            candidates (pd.DataFrame): DataFrame containing candidate items
+            alpha (float): Weight between semantic and collaborative relationships (0 to 1)
+            
+        Returns:
+            pd.DataFrame: Candidates with their scores
+        """
+        scores = []
+        for _, candidate in candidates.iterrows():
+            total_score = 0
+            candidate_idx = self.listing_id_to_idx[candidate['listing_id']]
+            
+            for _, history_item in user_history.iterrows():
+                history_idx = self.listing_id_to_idx[history_item['listing_id']]
+                
+                # Semantic relationship
+                semantic_score = self.item_relationship_matrix[candidate_idx, history_idx]
+                
+                # Collaborative relationship - compute on demand
+                collab_score = self._compute_collaborative_similarity(candidate_idx, history_idx)
+                
+                # Combine scores
+                total_score += alpha * semantic_score + (1 - alpha) * collab_score
+            
+            scores.append({
+                'listing_id': candidate['listing_id'],
+                'score': total_score / len(user_history)
+            })
+        
+        # Convert scores to DataFrame and merge with candidates
+        scores_df = pd.DataFrame(scores)
+        return candidates.merge(scores_df, on='listing_id').sort_values('score', ascending=False)
+
+    def retrieve_candidates(self, user_history, candidates, interaction_data, top_k=5, alpha=0.5, use_pairwise=False):
+        """
+        Retrieve and rank candidate items based on user history.
+        
+        Args:
+            user_history (pd.DataFrame): DataFrame containing user's interaction history
+            candidates (pd.DataFrame): DataFrame containing candidate items
+            interaction_data (pd.DataFrame): Full interaction data for collaborative filtering
+            top_k (int): Number of top recommendations to return
+            alpha (float): Weight between semantic and collaborative relationships (0 to 1)
+            use_pairwise (bool): Whether to use pair-wise ranking with LLM
+            
+        Returns:
+            pd.DataFrame: Top-k ranked candidate items with scores
+        """
+        # Compute relationship matrices if not already done
+        if self.item_relationship_matrix is None:
+            self.compute_semantic_relationship_matrix()
+        
+        if self.user_item_matrix is None:
+            self.compute_collaborative_relationship_matrix(interaction_data)
+        
+        # Get initial scores
+        ranked_candidates = self._get_initial_scores(user_history, candidates, alpha)
+        print("Initial scores:", ranked_candidates.head(top_k))
         # Apply pair-wise ranking if requested
         if use_pairwise:
+
+            reduced_ranked_candidates = ranked_candidates.head(top_k*2)
+
             # Use sliding window of size 2 to compare adjacent pairs
-            for i in tqdm(range(len(retrieved) - 1), desc="Pair-wise ranking", position=0, leave=True):
-                item1 = retrieved.iloc[i]
-                item2 = retrieved.iloc[i + 1]
+            for i in tqdm(range(len(reduced_ranked_candidates) - 1), desc="Pair-wise ranking", position=0, leave=True):
+                item1 = reduced_ranked_candidates.iloc[i]
+                item2 = reduced_ranked_candidates.iloc[i + 1]
                 
                 # Compare pair and swap if needed
-                if self._compare_pair_with_llm(item1, item2, user_history):
-                    retrieved.iloc[i], retrieved.iloc[i + 1] = retrieved.iloc[i + 1], retrieved.iloc[i]
+                if self._compare_pair_with_llm(item1, item2, user_history['listing_id'].tolist()):
+                    reduced_ranked_candidates.iloc[i], reduced_ranked_candidates.iloc[i + 1] = reduced_ranked_candidates.iloc[i + 1], reduced_ranked_candidates.iloc[i]
+            
+            ranked_candidates = reduced_ranked_candidates.head(top_k)
         
-        return retrieved.head(top_k)
+        return ranked_candidates.head(top_k)
