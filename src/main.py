@@ -6,7 +6,7 @@ from pprint import pprint
 import pandas as pd
 import numpy as np
 
-def run_recommender_evaluation(listings_df, reviews_df, llm_model='phi3', embedding_model='all-MiniLM-L6-v2', sample_size=20):
+def run_recommender_evaluation(listings_df, reviews_df, llm_model='phi3', embedding_model='all-MiniLM-L6-v2', sample_size=20, k=20):
     """
     Run the recommender evaluation pipeline
     
@@ -16,6 +16,7 @@ def run_recommender_evaluation(listings_df, reviews_df, llm_model='phi3', embedd
         llm_model: Language model to use for LLM ranker
         embedding_model: Sentence transformer model to use for embeddings
         sample_size: Number of users to evaluate
+        k: Number of recommendations to retrieve
     """
     print("\nRunning recommender evaluation...")
     print(f"Sample size: {sample_size} users")
@@ -28,7 +29,8 @@ def run_recommender_evaluation(listings_df, reviews_df, llm_model='phi3', embedd
         df_reviews=reviews_df,
         llm_model=llm_model,
         embedding_model=embedding_model,
-        sample_size=sample_size
+        sample_size=sample_size,
+        k=k
     )
     
     if results is not None:
@@ -69,19 +71,21 @@ def main():
     # Get candidate items (excluding user history)
     candidates = listings_df[~listings_df['listing_id'].isin(user_history['listing_id'])]
     
+
+    top_k = 20
     # Get recommendations
     recommendations = ranker.retrieve_candidates(
         user_history=user_history,
         candidates=candidates,
         interaction_data=reviews_df,
-        top_k=20
+        top_k=top_k
     )
     
     print("\nTop 5 recommendations:")
     print(recommendations)
     
     # Run the recommender evaluation
-    run_recommender_evaluation(listings_df, reviews_df, llm_model='gemma3', embedding_model='all-MiniLM-L6-v2', sample_size=200)
+    run_recommender_evaluation(listings_df, reviews_df, llm_model='gemma3', embedding_model='all-MiniLM-L6-v2', sample_size=200, k=top_k)
 
 if __name__ == '__main__':
     main()

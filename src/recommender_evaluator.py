@@ -533,7 +533,7 @@ class RandomRanker:
         return candidates.sample(frac=1, random_state=self.random_state).reset_index(drop=True).head(top_k)
 
 # Example usage script
-def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all-MiniLM-L6-v2', sample_size=200, random_state=42):
+def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all-MiniLM-L6-v2', sample_size=200, random_state=42, k=10):
     """
     Run a complete evaluation of recommender systems
     
@@ -544,6 +544,7 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
         embedding_model: Sentence transformer model to use for embeddings
         sample_size: Number of users to evaluate
         random_state: Random seed for reproducibility
+        k: Number of recommendations to evaluate
         
     Returns:
         pd.DataFrame: Comparison results
@@ -589,7 +590,7 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
     comparison_results = evaluator.compare_models(
         models_dict=models,
         holdout_data=holdout_data,
-        k=10,
+        k=k,
         sample_size=sample_size
     )
     
