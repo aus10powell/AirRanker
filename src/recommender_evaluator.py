@@ -247,7 +247,7 @@ class RecommenderEvaluator:
                 
         return 0.0
     
-    def evaluate_user(self, user_id, history, holdout, k=10):
+    def evaluate_user(self, user_id, history, holdout, k=10, use_pairwise=False):
         """
         Evaluate recommendations for a single user
         
@@ -256,6 +256,7 @@ class RecommenderEvaluator:
             history: DataFrame containing user's history
             holdout: DataFrame containing user's holdout items
             k: Number of recommendations to evaluate
+            use_pairwise: Whether to use pair-wise ranking for LLM_Ranker
             
         Returns:
             dict: Dictionary containing evaluation metrics
@@ -306,7 +307,7 @@ class RecommenderEvaluator:
                 user_history=history,
                 candidates=candidate_listings,
                 interaction_data=self.df_reviews,
-                top_k=k
+                top_k=k,
             )
             end_time = time.time()
             
@@ -533,7 +534,7 @@ class RandomRanker:
         return candidates.sample(frac=1, random_state=self.random_state).reset_index(drop=True).head(top_k)
 
 # Example usage script
-def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all-MiniLM-L6-v2', sample_size=200, random_state=42, k=10):
+def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all-MiniLM-L6-v2', sample_size=200, random_state=42, k=10, use_pairwise=False):
     """
     Run a complete evaluation of recommender systems
     
@@ -545,6 +546,7 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
         sample_size: Number of users to evaluate
         random_state: Random seed for reproducibility
         k: Number of recommendations to evaluate
+        use_pairwise: Whether to use pair-wise ranking with LLM
         
     Returns:
         pd.DataFrame: Comparison results
@@ -564,7 +566,7 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
     evaluator = RecommenderEvaluator(
         ranker=llm_ranker,
         df_listings=df_listings,
-        df_reviews=df_reviews
+        df_reviews=df_reviews,
     )
     
     print("Preparing holdout data...")
@@ -587,6 +589,14 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
         'Random': random_ranker
     }
     
+    # Modify the evaluate_user method to use pair-wise ranking for LLM_Ranker
+    original_evaluate_user = evaluator.evaluate_user
+    def evaluate_user_with_pairwise(user_id, history, holdout, k=10):
+        if evaluator.ranker == llm_ranker and use_pairwise:
+            return original_evaluate_user(user_id, history, holdout, k=k, use_pairwise=True)
+        return original_evaluate_user(user_id, history, holdout, k=k)
+    evaluator.evaluate_user = evaluate_user_with_pairwise
+    
     comparison_results = evaluator.compare_models(
         models_dict=models,
         holdout_data=holdout_data,
@@ -597,9 +607,10 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
     # Add model information
     comparison_results['llm_model'] = llm_model if llm_model else 'phi3'
     comparison_results['embedding_model'] = embedding_model
+    comparison_results['use_pairwise'] = use_pairwise
     
     print("\nModel comparison:")
-    print(comparison_results[['model', 'ndcg@k', 'precision@k', 'recall@k', 'hits@k', 'diversity', 'coverage', 'mrr', 'latency', 'llm_model', 'embedding_model']])
+    print(comparison_results[['model', 'ndcg@k', 'precision@k', 'recall@k', 'hits@k', 'diversity', 'coverage', 'mrr', 'latency', 'llm_model', 'embedding_model', 'use_pairwise']])
     
     # Plot comparison
     print("Generating comparison plot...")
