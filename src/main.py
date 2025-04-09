@@ -74,7 +74,7 @@ def main():
         user_history=user_history,
         candidates=candidates,
         interaction_data=reviews_df,
-        top_k=10
+        top_k=20
     )
     
     print("\nTop 5 recommendations:")

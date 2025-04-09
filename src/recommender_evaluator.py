@@ -19,12 +19,12 @@ class RecommenderEvaluator:
             ranker: The recommendation model to evaluate
             df_listings: DataFrame containing listing information
             df_reviews: DataFrame containing user reviews
-            metrics: List of metrics to compute (default: ['ndcg', 'precision', 'recall', 'diversity'])
+            metrics: List of metrics to compute (default: ['ndcg@k', 'precision@k', 'recall@k', 'hits@k', 'diversity'])
         """
         self.ranker = ranker
         self.df_listings = df_listings
         self.df_reviews = df_reviews
-        self.metrics = metrics or ['ndcg', 'precision', 'recall', 'diversity', 'coverage', 'mrr']
+        self.metrics = metrics or ['ndcg@k', 'precision@k', 'recall@k', 'hits@k', 'diversity', 'coverage', 'mrr']
         
         # Extract unique user IDs
         self.user_ids = df_reviews['reviewer_id'].unique()
@@ -104,7 +104,7 @@ class RecommenderEvaluator:
         return holdout_data
     
     def calculate_ndcg(self, recommended_ids, relevant_ids, k=10):
-        """Calculate Normalized Discounted Cumulative Gain"""
+        """Calculate Normalized Discounted Cumulative Gain at k"""
         if not relevant_ids or len(recommended_ids) == 0:
             return 0.0
         
@@ -140,6 +140,14 @@ class RecommenderEvaluator:
         recall = len(relevant_recommended) / len(relevant_ids) if relevant_ids else 0
         
         return precision, recall
+    
+    def calculate_hits_at_k(self, recommended_ids, relevant_ids, k=10):
+        """Calculate hits@k - whether any relevant item appears in top k recommendations"""
+        if not relevant_ids or len(recommended_ids) == 0:
+            return 0.0
+            
+        recommended_k = recommended_ids[:k]
+        return 1.0 if any(item in relevant_ids for item in recommended_k) else 0.0
     
     def calculate_diversity(self, recommended_listings, features=None):
         """
@@ -311,13 +319,16 @@ class RecommenderEvaluator:
             # Calculate metrics
             metrics_results = {}
             
-            if 'ndcg' in self.metrics:
-                metrics_results['ndcg'] = self.calculate_ndcg(recommended_ids, relevant_ids, k)
+            if 'ndcg@k' in self.metrics:
+                metrics_results['ndcg@k'] = self.calculate_ndcg(recommended_ids, relevant_ids, k)
                 
-            if 'precision' in self.metrics or 'recall' in self.metrics:
+            if 'precision@k' in self.metrics or 'recall@k' in self.metrics:
                 precision, recall = self.calculate_precision_recall(recommended_ids, relevant_ids, k)
-                metrics_results['precision'] = precision
-                metrics_results['recall'] = recall
+                metrics_results['precision@k'] = precision
+                metrics_results['recall@k'] = recall
+                
+            if 'hits@k' in self.metrics:
+                metrics_results['hits@k'] = self.calculate_hits_at_k(recommended_ids, relevant_ids, k)
                 
             if 'diversity' in self.metrics:
                 metrics_results['diversity'] = self.calculate_diversity(ranked_recommendations[:k])
@@ -459,7 +470,9 @@ class RecommenderEvaluator:
             
         for i, metric in enumerate(metrics):
             if metric in results_df.columns:
-                results_df.plot(x='model', y=metric, kind='bar', ax=axes[i], title=f'{metric.upper()} @{results_df["k"].iloc[0]}')
+                # Remove @k from title if present
+                title = metric.replace('@k', '')
+                results_df.plot(x='model', y=metric, kind='bar', ax=axes[i], title=f'{title.upper()} @{results_df["k"].iloc[0]}')
                 axes[i].set_ylabel(metric)
                 axes[i].grid(axis='y', linestyle='--', alpha=0.7)
                 
@@ -585,11 +598,11 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
     comparison_results['embedding_model'] = embedding_model
     
     print("\nModel comparison:")
-    print(comparison_results[['model', 'ndcg', 'precision', 'recall', 'diversity', 'coverage', 'mrr', 'latency', 'llm_model', 'embedding_model']])
+    print(comparison_results[['model', 'ndcg@k', 'precision@k', 'recall@k', 'hits@k', 'diversity', 'coverage', 'mrr', 'latency', 'llm_model', 'embedding_model']])
     
     # Plot comparison
     print("Generating comparison plot...")
-    fig = evaluator.plot_results(comparison_results, metrics=['ndcg', 'precision', 'recall', 'diversity', 'mrr'])
+    fig = evaluator.plot_results(comparison_results, metrics=['ndcg@k', 'precision@k', 'recall@k', 'hits@k', 'diversity', 'mrr'])
     plt.savefig('model_output/model_comparison.png')
     print("Comparison plot saved to model_output/model_comparison.png")
     
