@@ -9,6 +9,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import norm as sparse_norm
 from tqdm import tqdm
+import torch
+
 class ListingRanker:
     """Ranks listings using semantic similarity and collaborative filtering"""
     
@@ -23,12 +25,38 @@ class ListingRanker:
         """
         self.listings_df = listings_df
         self.reviews_df = reviews_df
+        
+        # Check if MPS is available
+        self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        print(f"Using device: {self.device}")
+        
+        # Initialize the embedding model
         self.embedding_model = SentenceTransformer(embedding_model)
+        if self.device.type == "mps":
+            self.embedding_model = self.embedding_model.to(self.device)
+            
         self.item_embeddings = None
         self.item_relationship_matrix = None
         self.user_item_matrix = None
         self.listing_id_to_idx = None
         self.idx_to_listing_id = None
+
+    def _generate_item_embeddings(self, item_prompts):
+        """Generate embeddings for items using the sentence transformer model."""
+        # Convert prompts to list if they're not already
+        if isinstance(item_prompts, pd.Series):
+            item_prompts = item_prompts.tolist()
+            
+        # Generate embeddings
+        with torch.no_grad():
+            embeddings = self.embedding_model.encode(item_prompts, convert_to_tensor=True, device=self.device)
+            
+        # Move embeddings to CPU for numpy operations if using MPS
+        if self.device.type == "mps":
+            embeddings = embeddings.cpu()
+            
+        # Convert to float32 before returning
+        return embeddings.numpy().astype(np.float32)
 
     def compute_semantic_relationship_matrix(self):
         """Compute semantic relationships between items using embeddings."""
@@ -40,8 +68,58 @@ class ListingRanker:
         self.listing_id_to_idx = {lid: idx for idx, lid in enumerate(self.listings_df['listing_id'])}
         self.idx_to_listing_id = {idx: lid for lid, idx in self.listing_id_to_idx.items()}
         
-        # Compute cosine similarity between embeddings
-        self.item_relationship_matrix = cosine_similarity(self.item_embeddings)
+        # Initialize the relationship matrix with float32
+        n_items = len(self.listings_df)
+        self.item_relationship_matrix = np.zeros((n_items, n_items), dtype=np.float32)
+        
+        # Process in batches to avoid memory issues
+        batch_size = 100  # Adjust based on available memory
+        
+        if self.device.type == "mps":
+            # Convert embeddings to tensor for faster computation
+            embeddings_tensor = torch.tensor(self.item_embeddings, dtype=torch.float32, device=self.device)
+            
+            # Process in batches
+            for i in tqdm(range(0, n_items, batch_size), desc="Computing similarity matrix"):
+                end_idx = min(i + batch_size, n_items)
+                batch_size_actual = end_idx - i
+                
+                # Get batch of embeddings
+                batch_embeddings = embeddings_tensor[i:end_idx]
+                
+                # Compute similarity for this batch against all items
+                # Use a smaller sub-batch size for the second dimension to further reduce memory usage
+                sub_batch_size = 50
+                for j in range(0, n_items, sub_batch_size):
+                    sub_end_idx = min(j + sub_batch_size, n_items)
+                    sub_batch_embeddings = embeddings_tensor[j:sub_end_idx]
+                    
+                    # Compute cosine similarity on GPU
+                    similarity_batch = torch.nn.functional.cosine_similarity(
+                        batch_embeddings.unsqueeze(1),
+                        sub_batch_embeddings.unsqueeze(0),
+                        dim=2
+                    )
+                    
+                    # Move back to CPU and store in the result matrix
+                    self.item_relationship_matrix[i:end_idx, j:sub_end_idx] = similarity_batch.cpu().numpy()
+                    
+                    # Clear GPU memory
+                    del similarity_batch
+                    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                
+                # Clear GPU memory after each batch
+                del batch_embeddings
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        else:
+            # Compute cosine similarity on CPU in batches
+            for i in tqdm(range(0, n_items, batch_size), desc="Computing similarity matrix"):
+                end_idx = min(i + batch_size, n_items)
+                batch_embeddings = self.item_embeddings[i:end_idx]
+                
+                # Compute similarity for this batch against all items
+                self.item_relationship_matrix[i:end_idx] = cosine_similarity(batch_embeddings, self.item_embeddings)
+            
         return self.item_relationship_matrix
 
     def compute_collaborative_relationship_matrix(self, interaction_data):
@@ -56,22 +134,6 @@ class ListingRanker:
         """
         # Create user-item interaction matrix
         self.user_item_matrix = self._create_user_item_matrix(interaction_data)
-
-    def _generate_item_embeddings(self, item_prompts):
-        """Generate embeddings for items in batches with memory management."""
-        batch_size = 32  # Reduced batch size
-        all_embeddings = []
-        
-        for i in tqdm(range(0, len(item_prompts), batch_size), desc="Generating embeddings", position=0, leave=True):
-            batch_prompts = item_prompts[i:i + batch_size].tolist()
-            batch_embeddings = self.embedding_model.encode(batch_prompts, show_progress_bar=False)
-            all_embeddings.append(batch_embeddings)
-            
-            # Clear memory after each batch
-            import gc
-            gc.collect()
-        
-        return np.vstack(all_embeddings)
 
     def _create_user_item_matrix(self, interaction_data):
         """Create user-item interaction matrix with memory efficiency."""
@@ -101,15 +163,43 @@ class ListingRanker:
         item1_vec = self.user_item_matrix.getcol(item1_idx)
         item2_vec = self.user_item_matrix.getcol(item2_idx)
         
-        # Compute cosine similarity
-        dot_product = item1_vec.T.dot(item2_vec).toarray()[0, 0]
-        norm1 = sparse_norm(item1_vec)
-        norm2 = sparse_norm(item2_vec)
-        
-        if norm1 == 0 or norm2 == 0:
-            return 0.0
-        
-        return dot_product / (norm1 * norm2)
+        if self.device.type == "mps":
+            # Convert sparse vectors to dense tensors and move to MPS
+            # Use a more memory-efficient approach by converting to dense only when needed
+            item1_dense = item1_vec.toarray().flatten()
+            item2_dense = item2_vec.toarray().flatten()
+            
+            # Check if vectors are non-zero before converting to tensor
+            if np.any(item1_dense) and np.any(item2_dense):
+                # Convert to float32 before creating tensors
+                item1_tensor = torch.tensor(item1_dense.astype(np.float32), device=self.device)
+                item2_tensor = torch.tensor(item2_dense.astype(np.float32), device=self.device)
+                
+                # Compute cosine similarity on GPU
+                dot_product = torch.dot(item1_tensor, item2_tensor)
+                norm1 = torch.norm(item1_tensor)
+                norm2 = torch.norm(item2_tensor)
+                
+                # Clear tensors to free memory
+                del item1_tensor, item2_tensor
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                
+                if norm1 == 0 or norm2 == 0:
+                    return 0.0
+                    
+                return (dot_product / (norm1 * norm2)).item()
+            else:
+                return 0.0
+        else:
+            # Compute cosine similarity on CPU
+            dot_product = item1_vec.T.dot(item2_vec).toarray()[0, 0]
+            norm1 = sparse_norm(item1_vec)
+            norm2 = sparse_norm(item2_vec)
+            
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+            
+            return dot_product / (norm1 * norm2)
 
     def _construct_item_description(self, item):
         """
@@ -184,26 +274,92 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
             pd.DataFrame: Candidates with their scores
         """
         scores = []
-        for _, candidate in candidates.iterrows():
-            total_score = 0
-            candidate_idx = self.listing_id_to_idx[candidate['listing_id']]
+        
+        # Get history indices once
+        history_indices = [self.listing_id_to_idx[history_item['listing_id']] for _, history_item in user_history.iterrows()]
+        
+        if self.device.type == "mps":
+            # Convert relationship matrix to float32 before creating tensor
+            relationship_matrix_float32 = self.item_relationship_matrix.astype(np.float32)
+            relationship_matrix = torch.tensor(relationship_matrix_float32, device=self.device)
             
-            for _, history_item in user_history.iterrows():
-                history_idx = self.listing_id_to_idx[history_item['listing_id']]
+            # Process candidates in smaller batches for memory efficiency
+            batch_size = 32
+            for i in range(0, len(candidates), batch_size):
+                batch_candidates = candidates.iloc[i:i+batch_size]
+                batch_scores = []
                 
-                # Semantic relationship
-                semantic_score = self.item_relationship_matrix[candidate_idx, history_idx]
+                # Get candidate indices for this batch
+                candidate_indices = [self.listing_id_to_idx[cid] for cid in batch_candidates['listing_id']]
                 
-                # Collaborative relationship - compute on demand
-                collab_score = self._compute_collaborative_similarity(candidate_idx, history_idx)
+                # Get semantic scores for all candidates in batch at once
+                semantic_scores = relationship_matrix[candidate_indices][:, history_indices]
+                
+                # Process collaborative scores in smaller sub-batches
+                sub_batch_size = 10
+                collab_scores_list = []
+                
+                for j in range(0, len(candidate_indices), sub_batch_size):
+                    sub_candidate_indices = candidate_indices[j:j+sub_batch_size]
+                    
+                    # Compute collaborative scores for this sub-batch
+                    sub_collab_scores = []
+                    for candidate_idx in sub_candidate_indices:
+                        sub_collab_scores.append([
+                            self._compute_collaborative_similarity(candidate_idx, history_idx)
+                            for history_idx in history_indices
+                        ])
+                    
+                    # Convert to tensor and move to device
+                    sub_collab_tensor = torch.tensor(sub_collab_scores, dtype=torch.float32, device=self.device)
+                    collab_scores_list.append(sub_collab_tensor)
+                    
+                    # Clear memory
+                    del sub_collab_scores
+                    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                
+                # Concatenate all collaborative score tensors
+                collab_scores = torch.cat(collab_scores_list, dim=0)
                 
                 # Combine scores
-                total_score += alpha * semantic_score + (1 - alpha) * collab_score
-            
-            scores.append({
-                'listing_id': candidate['listing_id'],
-                'score': total_score / len(user_history)
-            })
+                combined_scores = alpha * semantic_scores + (1 - alpha) * collab_scores
+                total_scores = torch.mean(combined_scores, dim=1)
+                
+                # Create score entries
+                for j, candidate_idx in enumerate(candidate_indices):
+                    batch_scores.append({
+                        'listing_id': self.idx_to_listing_id[candidate_idx],
+                        'score': total_scores[j].item()
+                    })
+                
+                scores.extend(batch_scores)
+                
+                # Clear memory
+                del semantic_scores, collab_scores, combined_scores, total_scores
+                del collab_scores_list
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        else:
+            # Original CPU implementation
+            for _, candidate in candidates.iterrows():
+                total_score = 0
+                candidate_idx = self.listing_id_to_idx[candidate['listing_id']]
+                
+                for _, history_item in user_history.iterrows():
+                    history_idx = self.listing_id_to_idx[history_item['listing_id']]
+                    
+                    # Semantic relationship
+                    semantic_score = self.item_relationship_matrix[candidate_idx, history_idx]
+                    
+                    # Collaborative relationship
+                    collab_score = self._compute_collaborative_similarity(candidate_idx, history_idx)
+                    
+                    # Combine scores
+                    total_score += alpha * semantic_score + (1 - alpha) * collab_score
+                
+                scores.append({
+                    'listing_id': candidate['listing_id'],
+                    'score': total_score / len(user_history)
+                })
         
         # Convert scores to DataFrame and merge with candidates
         scores_df = pd.DataFrame(scores)
