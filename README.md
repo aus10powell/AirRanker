@@ -3,6 +3,13 @@
 ## **Objective**
 Develop a recommendation system for Airbnb listings that can be expanded to different regions. The system will leverage listing metadata, user reviews, and embeddings to rank recommendations using **StarRanker**.
 
+## **Initial Results**
+Our initial evaluation comparing three different ranking approaches (LLM-based, Popularity-based, and Random) shows promising results:
+
+![Initial Results](model_output/initial_results.png)
+
+The comparison demonstrates the performance across different metrics, with the LLM-based ranker showing superior performance in NDCG and precision metrics, while the popularity-based ranker performs well in recall.
+
 ---
 
 ## **Phases of the Project**
