@@ -82,7 +82,7 @@ class ListingRanker:
             embeddings_tensor = torch.tensor(self.item_embeddings, dtype=torch.float32, device=self.device)
             
             # Process in batches
-            for i in tqdm(range(0, n_items, batch_size), desc="Computing similarity matrix"):
+            for i in tqdm(range(0, n_items, batch_size), desc="Computing similarity matrix", position=0, leave=False):
                 end_idx = min(i + batch_size, n_items)
                 batch_size_actual = end_idx - i
                 
@@ -399,7 +399,7 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
             reduced_ranked_candidates = ranked_candidates.head(top_k*2)
 
             # Use sliding window of size 2 to compare adjacent pairs
-            for i in tqdm(range(len(reduced_ranked_candidates) - 1), desc="Pair-wise ranking", position=0, leave=True):
+            for i in tqdm(range(len(reduced_ranked_candidates) - 1), desc="Pair-wise ranking", position=0, leave=False):
                 item1 = reduced_ranked_candidates.iloc[i]
                 item2 = reduced_ranked_candidates.iloc[i + 1]
                 
