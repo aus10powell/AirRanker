@@ -3,6 +3,7 @@ import itertools
 import json
 import pandas as pd
 import numpy as np
+import logging
 from pprint import pprint
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -11,8 +12,19 @@ from scipy.sparse.linalg import norm as sparse_norm
 from tqdm import tqdm
 import torch
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('airranker.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+
 class ListingRanker:
-    """Ranks listings using semantic similarity and collaborative filtering"""
+    """Ranks listings using semantic similarity and collaborative filtering with optional pair-wise ranking"""
     
     def __init__(self, listings_df, reviews_df, embedding_model='all-MiniLM-L6-v2', llm_model='phi3.5'):
         """
@@ -24,13 +36,14 @@ class ListingRanker:
             embedding_model: Name of the sentence transformer model to use
             llm_model: Name of the LLM model to use for pairwise ranking
         """
+        op = "ListingRanker.__init__"
         self.listings_df = listings_df
         self.reviews_df = reviews_df
         self.llm_model = llm_model
         
         # Check if MPS is available
         self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-        print(f"Using device: {self.device}")
+        logger.info(f"op={op} Using device: {self.device}")
         
         # Initialize the embedding model
         self.embedding_model = SentenceTransformer(embedding_model)
@@ -45,6 +58,7 @@ class ListingRanker:
 
     def _generate_item_embeddings(self, item_prompts):
         """Generate embeddings for items using the sentence transformer model."""
+        op = "ListingRanker._generate_item_embeddings"
         # Convert prompts to list if they're not already
         if isinstance(item_prompts, pd.Series):
             item_prompts = item_prompts.tolist()
@@ -62,7 +76,11 @@ class ListingRanker:
 
     def compute_semantic_relationship_matrix(self):
         """Compute semantic relationships between items using embeddings."""
+        op = "ListingRanker.compute_semantic_relationship_matrix"
+        logger.info(f"op={op} Computing semantic relationship matrix...")
+        
         if self.item_embeddings is None:
+            logger.info(f"op={op} Generating item embeddings...")
             item_prompts = self.listings_df.apply(self._construct_item_description, axis=1)
             self.item_embeddings = self._generate_item_embeddings(item_prompts)
         
@@ -78,6 +96,7 @@ class ListingRanker:
         batch_size = 100  # Adjust based on available memory
         
         if self.device.type == "mps":
+            logger.info(f"op={op} Using MPS for computation")
             # Convert embeddings to tensor for faster computation
             embeddings_tensor = torch.tensor(self.item_embeddings, dtype=torch.float32, device=self.device)
             
@@ -114,6 +133,7 @@ class ListingRanker:
                 del batch_embeddings
                 torch.cuda.empty_cache() if torch.cuda.is_available() else None
         else:
+            logger.info(f"op={op} Using CPU for computation")
             # Compute cosine similarity on CPU in batches
             for i in tqdm(range(0, n_items, batch_size), desc="Computing similarity matrix"):
                 end_idx = min(i + batch_size, n_items)
@@ -121,7 +141,8 @@ class ListingRanker:
                 
                 # Compute similarity for this batch against all items
                 self.item_relationship_matrix[i:end_idx] = cosine_similarity(batch_embeddings, self.item_embeddings)
-            
+        
+        logger.info(f"op={op} Semantic relationship matrix computation complete")
         return self.item_relationship_matrix
 
     def compute_collaborative_relationship_matrix(self, interaction_data):
@@ -134,11 +155,16 @@ class ListingRanker:
         Returns:
             None: Matrix computation is deferred until needed
         """
+        op = "ListingRanker.compute_collaborative_relationship_matrix"
+        logger.info(f"op={op} Computing collaborative relationship matrix...")
+        
         # Create user-item interaction matrix
         self.user_item_matrix = self._create_user_item_matrix(interaction_data)
+        logger.info(f"op={op} Collaborative relationship matrix computation complete")
 
     def _create_user_item_matrix(self, interaction_data):
         """Create user-item interaction matrix with memory efficiency."""
+        op = "ListingRanker._create_user_item_matrix"
         # Create binary interactions (1 for each review)
         interactions = interaction_data.groupby(['reviewer_id', 'listing_id']).size().reset_index(name='interaction')
         
@@ -154,6 +180,7 @@ class ListingRanker:
         col = [self.listing_id_to_idx[lid] for lid in interactions['listing_id']]
         data = interactions['interaction'].values
         
+        logger.info(f"op={op} Created user-item matrix with {len(reviewer_ids)} users and {len(listing_ids)} listings")
         return csr_matrix((data, (row, col)), shape=(len(reviewer_ids), len(listing_ids)))
 
     def _compute_collaborative_similarity(self, item1_idx, item2_idx):
@@ -242,6 +269,7 @@ class ListingRanker:
 
     def _compare_pair_with_llm(self, item1, item2, user_history):
         """Compare two items using LLM to determine which is more relevant."""
+        op = "ListingRanker._compare_pair_with_llm"
         # Convert listing IDs to strings before joining
         user_history_str = [str(uid) for uid in user_history]
         
@@ -252,6 +280,7 @@ Item 2: {item2['name']} - {item2['description']}
 
 Which item is more relevant to recommend next? Answer with just '1' or '2'."""
 
+        logger.debug(f"op={op} Sending prompt to LLM: {prompt[:100]}...")
         response = ollama.chat(model=f'{self.llm_model}:latest', messages=[
             {
                 'role': 'user',
@@ -261,6 +290,7 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
         
         # Parse response to determine if items should be swapped
         answer = response['message']['content'].strip().lower()
+        logger.debug(f"op={op} LLM response: {answer}")
         return answer == '2'  # Return True if items should be swapped
 
     def _get_initial_scores(self, user_history, candidates, alpha=0.5):
@@ -275,12 +305,16 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
         Returns:
             pd.DataFrame: Candidates with their scores
         """
+        op = "ListingRanker._get_initial_scores"
+        logger.info(f"op={op} Calculating initial scores for {len(candidates)} candidates with alpha={alpha}")
+        
         scores = []
         
         # Get history indices once
         history_indices = [self.listing_id_to_idx[history_item['listing_id']] for _, history_item in user_history.iterrows()]
         
         if self.device.type == "mps":
+            logger.info(f"op={op} Using MPS for score calculation")
             # Convert relationship matrix to float32 before creating tensor
             relationship_matrix_float32 = self.item_relationship_matrix.astype(np.float32)
             relationship_matrix = torch.tensor(relationship_matrix_float32, device=self.device)
@@ -341,6 +375,7 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
                 del collab_scores_list
                 torch.cuda.empty_cache() if torch.cuda.is_available() else None
         else:
+            logger.info(f"op={op} Using CPU for score calculation")
             # Original CPU implementation
             for _, candidate in candidates.iterrows():
                 total_score = 0
@@ -365,7 +400,9 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
         
         # Convert scores to DataFrame and merge with candidates
         scores_df = pd.DataFrame(scores)
-        return candidates.merge(scores_df, on='listing_id').sort_values('score', ascending=False)
+        result = candidates.merge(scores_df, on='listing_id').sort_values('score', ascending=False)
+        logger.info(f"op={op} Initial score calculation complete")
+        return result
 
     def retrieve_candidates(self, user_history, candidates, interaction_data, top_k=5, alpha=0.5, use_pairwise=False):
         """
@@ -382,6 +419,9 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
         Returns:
             pd.DataFrame: Top-k ranked candidate items with scores
         """
+        op = "ListingRanker.retrieve_candidates"
+        logger.info(f"op={op} Retrieving candidates with top_k={top_k}, alpha={alpha}, use_pairwise={use_pairwise}")
+        
         # Compute relationship matrices if not already done
         if self.item_relationship_matrix is None:
             self.compute_semantic_relationship_matrix()
@@ -391,15 +431,17 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
         
         # Get initial scores
         ranked_candidates = self._get_initial_scores(user_history, candidates, alpha)
-        print("Initial scores:", ranked_candidates.head(top_k))
+        logger.info(f"op={op} Initial scores: {ranked_candidates[['listing_id', 'score']].head(3)}")
+        
         # Apply pair-wise ranking if requested
         if use_pairwise:
-            print(f"Using LLM model '{self.llm_model}' for pair-wise ranking...")
+            logger.info(f"op={op} Using LLM model '{self.llm_model}' for pair-wise ranking...")
 
-            reduced_ranked_candidates = ranked_candidates.head(top_k*2)
+            reduced_ranked_candidates = ranked_candidates.head(top_k*3)
+            logger.info(f"op={op} num reduced_ranked_candidates={len(reduced_ranked_candidates)}")
 
             # Use sliding window of size 2 to compare adjacent pairs
-            for i in tqdm(range(len(reduced_ranked_candidates) - 1), desc="Pair-wise ranking", position=0, leave=False):
+            for i in tqdm(range(len(reduced_ranked_candidates) - 1), desc="Pair-wise ranking", position=0, leave=True):
                 item1 = reduced_ranked_candidates.iloc[i]
                 item2 = reduced_ranked_candidates.iloc[i + 1]
                 
@@ -408,5 +450,7 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
                     reduced_ranked_candidates.iloc[i], reduced_ranked_candidates.iloc[i + 1] = reduced_ranked_candidates.iloc[i + 1], reduced_ranked_candidates.iloc[i]
             
             ranked_candidates = reduced_ranked_candidates.head(top_k)
+            logger.info(f"op={op} Pair-wise ranking complete")
         
+        logger.info(f"op={op} Returning top {top_k} candidates")
         return ranked_candidates.head(top_k)

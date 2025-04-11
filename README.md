@@ -45,6 +45,8 @@ The recommendation system uses a sophisticated ranking approach that combines se
      - Reduces bias from different scales of features
      - Better captures relative preferences
      - Works well even with sparse user data
+   
+   *This ranking approach is based on the STAR (Simple Training-free Approach for Recommendations) paper [arXiv:2410.16458](https://arxiv.org/abs/2410.16458), which demonstrates the effectiveness of using large language models for recommendations without requiring fine-tuning.*
 
 3. **Zero-Shot Capability**:
    - The system can rank new listings without requiring historical data
