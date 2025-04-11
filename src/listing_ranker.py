@@ -14,7 +14,7 @@ import torch
 class ListingRanker:
     """Ranks listings using semantic similarity and collaborative filtering"""
     
-    def __init__(self, listings_df, reviews_df, embedding_model='all-MiniLM-L6-v2'):
+    def __init__(self, listings_df, reviews_df, embedding_model='all-MiniLM-L6-v2', llm_model='phi3.5'):
         """
         Initialize the ranker
         
@@ -22,9 +22,11 @@ class ListingRanker:
             listings_df: DataFrame containing listing information
             reviews_df: DataFrame containing user reviews
             embedding_model: Name of the sentence transformer model to use
+            llm_model: Name of the LLM model to use for pairwise ranking
         """
         self.listings_df = listings_df
         self.reviews_df = reviews_df
+        self.llm_model = llm_model
         
         # Check if MPS is available
         self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -250,7 +252,7 @@ Item 2: {item2['name']} - {item2['description']}
 
 Which item is more relevant to recommend next? Answer with just '1' or '2'."""
 
-        response = ollama.chat(model='phi4:latest', messages=[
+        response = ollama.chat(model=f'{self.llm_model}:latest', messages=[
             {
                 'role': 'user',
                 'content': prompt
@@ -392,6 +394,7 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
         print("Initial scores:", ranked_candidates.head(top_k))
         # Apply pair-wise ranking if requested
         if use_pairwise:
+            print(f"Using LLM model '{self.llm_model}' for pair-wise ranking...")
 
             reduced_ranked_candidates = ranked_candidates.head(top_k*2)
 

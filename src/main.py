@@ -61,7 +61,7 @@ def main():
     print("reviews_df.head():", reviews_df.head())
 
     # Initialize ranker with data
-    ranker = ListingRanker(listings_df=listings_df, reviews_df=reviews_df)
+    ranker = ListingRanker(listings_df=listings_df, reviews_df=reviews_df, llm_model='llama3.2')
 
     # Example: Get recommendations for a user
     user_id = reviews_df['reviewer_id'].iloc[0]  # Get first user as example
@@ -105,7 +105,7 @@ def main():
     print(recommendations_with_llm[['name', 'score']].head())
     
     # Run the recommender evaluation
-    run_recommender_evaluation(listings_df, reviews_df, llm_model='phi4', embedding_model='all-MiniLM-L6-v2', sample_size=sample_size, k=top_k)
+    run_recommender_evaluation(listings_df, reviews_df, llm_model='phi3.5', embedding_model='all-MiniLM-L6-v2', sample_size=sample_size, k=top_k)
 
 if __name__ == '__main__':
     main()
