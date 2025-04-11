@@ -119,6 +119,13 @@ The Phi-3 model demonstrated:
 - Reasonable latency for real-time recommendations
 - Room for improvement in precision metrics
 
+**LLM Inference Speed Findings:**
+Our initial approach to use smaller language models (SLMs) like Phi-4 for faster inference in the retrieval stage proved to be counterproductive. While we expected better performance with Phi-4, we observed significantly slower inference times (on a 14in macbook pro 14in M2):
+- Phi-4: ~14 seconds per iteration
+- Llama 3.2: ~2.5 iterations per second
+
+This finding led us to switch to Llama 3.2, which not only provided faster inference but also maintained good recommendation quality. This experience highlights the importance of thorough performance testing when selecting LLM models for production systems.
+
 ###### **all-mpnet-base-v2 Model Results**
 Using the all-mpnet-base-v2 model for semantic understanding, we observed the following performance metrics:
 - NDCG: 0.011515

@@ -303,12 +303,25 @@ class RecommenderEvaluator:
         # Get recommendations
         try:
             start_time = time.time()
-            ranked_recommendations = self.ranker.retrieve_candidates(
-                user_history=history,
-                candidates=candidate_listings,
-                interaction_data=self.df_reviews,
-                top_k=k,
-            )
+            
+            # Only pass use_pairwise to ListingRanker
+            if isinstance(self.ranker, ListingRanker):
+                ranked_recommendations = self.ranker.retrieve_candidates(
+                    user_history=history,
+                    candidates=candidate_listings,
+                    interaction_data=self.df_reviews,
+                    top_k=k,
+                    use_pairwise=use_pairwise
+                )
+            else:
+                # For other rankers, don't pass use_pairwise
+                ranked_recommendations = self.ranker.retrieve_candidates(
+                    user_history=history,
+                    candidates=candidate_listings,
+                    interaction_data=self.df_reviews,
+                    top_k=k
+                )
+                
             end_time = time.time()
             
             # Extract recommended IDs
@@ -376,7 +389,7 @@ class RecommenderEvaluator:
         all_recommended_ids = []
         
         # Evaluate each user
-        for user_id in tqdm(sampled_users, desc="Evaluating users"):
+        for user_id in tqdm(sampled_users, desc="Evaluating users", position=0, leave=False):
             # Get user history and holdout
             user_data = holdout_data['user_histories'].get(user_id)
             if not user_data:
@@ -558,8 +571,8 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
     np.random.seed(random_state)
     
     # Initialize rankers
-    llm_ranker = ListingRanker(listings_df=df_listings, reviews_df=df_reviews, embedding_model=embedding_model)
-    popularity_ranker = PopularityRanker(df_reviews)
+    llm_ranker = ListingRanker(listings_df=df_listings, reviews_df=df_reviews, embedding_model=embedding_model, llm_model=llm_model)
+    popularity_ranker = PopularityRanker(df_reviews)     
     random_ranker = RandomRanker(random_state=random_state)
     
     # Initialize evaluator
@@ -605,7 +618,7 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
     )
     
     # Add model information
-    comparison_results['llm_model'] = llm_model if llm_model else 'phi3'
+    comparison_results['llm_model'] = llm_model if llm_model else 'phi4'
     comparison_results['embedding_model'] = embedding_model
     comparison_results['use_pairwise'] = use_pairwise
     
