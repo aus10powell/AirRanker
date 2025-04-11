@@ -1,0 +1,53 @@
+[
+  {
+    "ndcg@k": 0.017275273313181235,
+    "precision@k": 0.0027500000000000003,
+    "recall@k": 0.015416666666666665,
+    "hits@k": 0.0275,
+    "diversity": 0.7488291702439469,
+    "coverage": 0.2565731166912851,
+    "mrr": 0.012048611111111109,
+    "latency": 17.83974568128586,
+    "timestamp": "2025-04-11 09:41:08",
+    "k": 10,
+    "sample_size": 400,
+    "model": "LLM_Ranker",
+    "llm_model": "llama3.2",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "use_pairwise": true
+  },
+  {
+    "ndcg@k": 0.011210574159161395,
+    "precision@k": 0.002,
+    "recall@k": 0.015,
+    "hits@k": 0.02,
+    "diversity": 0.7432041533257785,
+    "coverage": 0.1273264401772526,
+    "mrr": 0.008027777777777778,
+    "latency": 0.0004391855001449585,
+    "timestamp": "2025-04-11 09:41:15",
+    "k": 10,
+    "sample_size": 400,
+    "model": "Popularity",
+    "llm_model": "llama3.2",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "use_pairwise": true
+  },
+  {
+    "ndcg@k": 0.0024141371783852165,
+    "precision@k": 0.0005,
+    "recall@k": 0.0025,
+    "hits@k": 0.005,
+    "diversity": 0.7457966421906694,
+    "coverage": 0.3327917282127031,
+    "mrr": 0.0006696428571428571,
+    "latency": 0.00025468409061431887,
+    "timestamp": "2025-04-11 09:41:23",
+    "k": 10,
+    "sample_size": 400,
+    "model": "Random",
+    "llm_model": "llama3.2",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "use_pairwise": true
+  }
+]
