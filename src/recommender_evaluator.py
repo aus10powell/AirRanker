@@ -19,12 +19,12 @@ class RecommenderEvaluator:
             ranker: The recommendation model to evaluate
             df_listings: DataFrame containing listing information
             df_reviews: DataFrame containing user reviews
-            metrics: List of metrics to compute (default: ['ndcg@k', 'precision@k', 'recall@k', 'hits@k', 'diversity'])
+            metrics: List of metrics to compute (default: ['mrr', 'ndcg@k', 'precision@k', 'recall@k', 'hits@k', 'diversity', 'coverage'])
         """
         self.ranker = ranker
         self.df_listings = df_listings
         self.df_reviews = df_reviews
-        self.metrics = metrics or ['ndcg@k', 'precision@k', 'recall@k', 'hits@k', 'diversity', 'coverage', 'mrr']
+        self.metrics = metrics or ['mrr', 'ndcg@k', 'precision@k', 'recall@k', 'hits@k', 'diversity', 'coverage']
         
         # Extract unique user IDs
         self.user_ids = df_reviews['reviewer_id'].unique()

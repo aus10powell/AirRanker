@@ -280,3 +280,5 @@ airbnb_recommender/
 2. **Hybrid Recommendation Approach Yielded Better Results**: By combining semantic similarity (based on listing content) with collaborative filtering (based on user behavior), we created more robust recommendations that captured both content relevance and user preference patterns.
 
 3. **Smaller Models Delivered Sufficient Performance**: We found that using smaller transformer models (MiniLM) with reduced batch sizes provided an excellent balance between accuracy and resource consumption, allowing our recommendation system to run efficiently even with limited computing resources.
+
+4. **LLM_Ranker Performance Scaling**: We discovered that the LLM_Ranker's performance significantly improved when we increased the user sample size from 200 to 400 and provided 3x the number of potential listings after popularity ranking (up from 2x). This suggests that the model benefits from both a larger training set and a broader candidate pool, allowing it to better understand user preferences and make more accurate recommendations.
