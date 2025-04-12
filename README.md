@@ -3,6 +3,58 @@
 ## **Objective**
 Develop a recommendation system for Airbnb listings that can be expanded to different regions. The system will leverage listing metadata, user reviews, and embeddings to rank recommendations using **StarRanker**.
 
+### 🧠 Who This Is For
+
+#### ✅ 1. New or Infrequent Airbnb Users
+- These users don't have much past data, so normal recommenders don't work well.
+- Zero-shot ranking can still give them useful results based on what they type.
+- You can frame this as a smarter way to search for people new to Airbnb.
+
+#### ✅ 2. Casual Browsers
+- These users don't visit often. Maybe once a year. They care more about vibe or location than past trips.
+- The system can handle broad or unclear searches like:
+  - "Good for remote work with views"
+- It doesn't need past behavior to find good matches.
+
+#### ✅ 3. Users With Specific Needs
+- Think digital nomads, families, or people with pets. They have clear preferences that don't always match past bookings.
+- Regular search tools often miss what they want.
+- This system can understand things like:
+  > "Quiet but near public transport, not too touristy."
+
+#### ✅ 4. Areas With Little Data
+- New cities or regions often don't have enough reviews or booking history.
+- This system doesn't need that. It ranks based on listing details, not user data.
+
+#### ✅ 5. People Who Care About Privacy
+- Some users don't want their data tracked.
+- This approach doesn't rely on past behavior. You could offer it as a "private" or low-data way to search.
+
+---
+
+## 🔧 Design Notes
+
+### 🧪 Works Right Away
+- It doesn't need to warm up or collect history. It's ready on day one.
+- You could use it even without login — just through something like `search_agent.py`.
+
+### 🧭 Let People Search by Talking
+- Skip the filters. Let users just say what they want.
+- Examples:
+  - "Best places in Seattle to work remotely."
+  - "Near coffee shops and yoga studios."
+  - "I'm bringing my dog and don't have a car."
+
+### 📊 Add Personalization Later (Optional)
+- You don't need it, but you can add history-based filters later:
+  - Filter listings using past data.
+  - Then re-rank with this system based on the current query.
+
+### 🧪 A/B Test or Let Users Choose
+- Let users switch between this system and the default sort.
+- Maybe show how it's better for new users.
+
+
 ## **Initial Results**
 Our initial evaluation comparing three different ranking approaches (LLM-based, Popularity-based, and Random) shows promising results:
 
