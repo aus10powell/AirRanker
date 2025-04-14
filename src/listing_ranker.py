@@ -431,7 +431,7 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
         
         # Get initial scores
         ranked_candidates = self._get_initial_scores(user_history, candidates, alpha)
-        logger.info(f"op={op} Initial scores: {ranked_candidates[['listing_id', 'score']].head(3)}")
+        logger.info(f"op={op} First 3 initial scores (listing_id, score): {ranked_candidates[['listing_id', 'score']].head(3)}")
         
         # Apply pair-wise ranking if requested
         if use_pairwise:
