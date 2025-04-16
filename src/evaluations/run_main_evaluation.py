@@ -1,8 +1,9 @@
 import os
 import logging
-from data_loader import AirbnbDataLoader
-from listing_ranker import ListingRanker
-from recommender_evaluator import RecommenderEvaluator, run_evaluation
+# To run this script, use: python -m src.evaluations.run_main_evaluation from the project root
+from src.data_loader import AirbnbDataLoader
+from src.listing_ranker import ListingRanker
+from src.evaluations.recommender_evaluator import RecommenderEvaluator, run_evaluation
 from pprint import pprint
 import pandas as pd
 import numpy as np

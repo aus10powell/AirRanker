@@ -341,3 +341,14 @@ airbnb_recommender/
 3. **Smaller Models Delivered Sufficient Performance**: We found that using smaller transformer models (MiniLM) with reduced batch sizes provided an excellent balance between accuracy and resource consumption, allowing our recommendation system to run efficiently even with limited computing resources.
 
 4. **LLM_Ranker Performance Scaling**: We discovered that the LLM_Ranker's performance significantly improved when we increased the user sample size from 200 to 400 and provided 3x the number of potential listings after popularity ranking (up from 2x). This suggests that the model benefits from both a larger training set and a broader candidate pool, allowing it to better understand user preferences and make more accurate recommendations.
+
+## How to Run the Evaluation Script
+
+To run the main evaluation (which compares the LLM-based, Popularity-based, and Random rankers), use the following command **from the project root directory**:
+
+```bash
+python -m src.evaluations.run_main_evaluation
+```
+
+- Make sure your working directory is the root of the project (the folder containing `src/` and `README.md`).
+- This will execute the evaluation pipeline and save results/plots in the `model_output/` directory.

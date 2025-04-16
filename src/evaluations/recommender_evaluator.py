@@ -8,7 +8,7 @@ import random
 from datetime import datetime
 import json
 import time
-from listing_ranker import ListingRanker
+from src.listing_ranker import ListingRanker
 
 class RecommenderEvaluator:
     def __init__(self, ranker, df_listings, df_reviews, metrics=None):
