@@ -2,18 +2,17 @@
 Semantic Evaluation for Airbnb Ranker
 
 This script evaluates the performance of the Airbnb Ranker model in a semantic search scenario.
-It simulates how well the model can identify the listing a user actually booked based on their review text.
+It tests how well the model can identify the listing a user actually booked based solely on their review text.
 
 The evaluation process:
 1. Creates a dataset of one-review users with high-rated listings
-2. For each user, uses their review as a query
-3. Hides the actual booked listing from the candidate set
-4. Uses the StarRanker model to rank all other listings
-5. Checks where the hidden (actual booked) listing appears in the ranking
-6. Calculates evaluation metrics (hit rate, mean reciprocal rank, etc.)
+2. For each user, uses their review text as a direct query
+3. Uses the StarRanker model to rank all listings based on the review text
+4. Checks where the actual booked listing appears in the ranking
+5. Calculates evaluation metrics (hit rate, mean reciprocal rank, etc.)
 
 This approach tests if the model can effectively understand the semantic meaning of reviews
-and match them to the appropriate listings.
+and match them to the appropriate listings without relying on user history or other contextual information.
 """
 
 import pandas as pd
@@ -26,6 +25,7 @@ import sys
 import numpy as np
 from tqdm import tqdm
 import time
+from datetime import datetime
 
 # Add the parent directory to the path to import from src
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -141,6 +141,40 @@ def create_evaluation_dataset(
     
     return evaluation_df
 
+def calculate_ndcg(relevance_scores, k):
+    """
+    Calculate Normalized Discounted Cumulative Gain at k.
+    
+    Args:
+        relevance_scores: List of binary relevance scores (1 for relevant, 0 for not relevant)
+        k: Number of top items to consider
+        
+    Returns:
+        float: NDCG@k score
+    """
+    if not relevance_scores or k <= 0:
+        return 0.0
+    
+    # Limit to top k items
+    relevance_scores = relevance_scores[:k]
+    
+    # Calculate DCG
+    dcg = 0.0
+    for i, rel in enumerate(relevance_scores):
+        dcg += rel / np.log2(i + 2)  # log2(i+2) because i is 0-indexed
+    
+    # Calculate IDCG (ideal DCG)
+    # Sort relevance scores in descending order
+    ideal_scores = sorted(relevance_scores, reverse=True)
+    idcg = 0.0
+    for i, rel in enumerate(ideal_scores):
+        idcg += rel / np.log2(i + 2)
+    
+    # Calculate NDCG
+    ndcg = dcg / idcg if idcg > 0 else 0.0
+    
+    return ndcg
+
 def simulate_recommendation_scenario(
     evaluation_df: pd.DataFrame,
     listings_df: pd.DataFrame,
@@ -179,37 +213,49 @@ def simulate_recommendation_scenario(
     mean_reciprocal_rank = 0.0
     not_found = 0
     
+    # For NDCG calculation
+    all_ndcg_scores = []
+    
     # For each pseudo-user
     for idx, row in tqdm(evaluation_df.iterrows(), total=total_users, desc="Evaluating users"):
         # Get the target listing (ground truth)
         target_listing_id = row['target_listing_id']
-        
-        # Create a user history with just this review
-        user_history = pd.DataFrame({
-            'listing_id': [target_listing_id],
-            'comments': [row['query']]
-        })
+        review_text = row['query']
         
         # Include all listings including the target
-        # We'll evaluate where the target appears in the ranking
         candidates = listings_df.copy()
         
-        # Rank the candidates
-        ranked_candidates = ranker.retrieve_candidates(
-            user_history=user_history,
-            candidates=candidates,
-            interaction_data=reviews_df,
-            top_k=top_k,
-            alpha=alpha,
-            use_pairwise=use_pairwise
-        )
+        # Try to rank the candidates using the review text as a direct query
+        try:
+            ranked_candidates = ranker.retrieve_by_query(
+                query_text=review_text,
+                candidates=candidates,
+                interaction_data=reviews_df,
+                top_k=top_k,
+                alpha=alpha,
+                use_pairwise=use_pairwise
+            )
+        except ConnectionError as e:
+            logger.error(f"Connection error with Ollama: {e}")
+            raise ConnectionError(f"Failed to connect to Ollama service: {e}")
         
         # Check if target is in the ranked candidates
         target_rank = None
+        relevance_scores = []
+        
         for rank, (_, candidate) in enumerate(ranked_candidates.iterrows(), 1):
             if candidate['listing_id'] == target_listing_id:
                 target_rank = rank
+                relevance_scores.append(1)
+            else:
+                relevance_scores.append(0)
+            
+            if rank >= top_k:
                 break
+        
+        # Calculate NDCG for this user
+        ndcg_score = calculate_ndcg(relevance_scores, top_k)
+        all_ndcg_scores.append(ndcg_score)
         
         # Update metrics
         if target_rank is not None:
@@ -233,11 +279,12 @@ def simulate_recommendation_scenario(
         'found_in_top_10': found_in_top_10,
         'found_in_top_20': found_in_top_20,
         'not_found': not_found,
-        'hit_rate_at_k': round(found_in_top_k / total_users if total_users > 0 else 0, 4),
-        'hit_rate_at_5': round(found_in_top_5 / total_users if total_users > 0 else 0, 4),
-        'hit_rate_at_10': round(found_in_top_10 / total_users if total_users > 0 else 0, 4),
-        'hit_rate_at_20': round(found_in_top_20 / total_users if total_users > 0 else 0, 4),
-        'mean_reciprocal_rank': round(mean_reciprocal_rank / total_users if total_users > 0 else 0, 4)
+        'hit_rate_at_k': round(found_in_top_k / total_users if total_users > 0 else 0, 5),
+        'hit_rate_at_5': round(found_in_top_5 / total_users if total_users > 0 else 0, 5),
+        'hit_rate_at_10': round(found_in_top_10 / total_users if total_users > 0 else 0, 5),
+        'hit_rate_at_20': round(found_in_top_20 / total_users if total_users > 0 else 0, 5),
+        f'mrr@{top_k}': round(mean_reciprocal_rank / total_users if total_users > 0 else 0, 5),
+        f'ndcg@{top_k}': round(np.mean(all_ndcg_scores) if all_ndcg_scores else 0, 5)
     }
     
     logger.info(f"Evaluation metrics: {metrics}")
@@ -245,7 +292,14 @@ def simulate_recommendation_scenario(
 
 def save_evaluation_results(
     metrics: Dict[str, Any],
-    output_path: str
+    output_path: str,
+    llm_model: str,
+    use_pairwise: bool,
+    top_k: int,
+    alpha: float,
+    min_rating: float,
+    min_chars: int,
+    num_users: int
 ):
     """
     Save evaluation results to file.
@@ -253,22 +307,54 @@ def save_evaluation_results(
     Args:
         metrics: Dictionary with evaluation metrics
         output_path: Path to save the file
+        llm_model: Name of the LLM model used
+        use_pairwise: Whether pair-wise ranking was used
+        top_k: Number of top recommendations considered
+        alpha: Weight between semantic and collaborative relationships
+        min_rating: Minimum rating threshold used
+        min_chars: Minimum characters in review text
+        num_users: Number of users evaluated
     """
     logger.info(f"Saving evaluation results to {output_path}...")
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
+    # Add metadata
+    metrics_with_metadata = {
+        **metrics,
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'model_info': {
+            'llm_model': llm_model,
+            'embedding_model': 'all-MiniLM-L6-v2',
+            'use_pairwise': use_pairwise
+        },
+        'evaluation_params': {
+            'top_k': top_k,
+            'alpha': alpha,
+            'min_rating': min_rating,
+            'min_chars': min_chars,
+            'num_users': num_users
+        }
+    }
+    
     # Use a custom JSON encoder to ensure high precision for floating point values
     class HighPrecisionEncoder(json.JSONEncoder):
         def default(self, obj):
             if isinstance(obj, float):
-                return round(obj, 4)
+                return round(obj, 5)
             return super().default(obj)
     
     with open(output_path, 'w') as f:
-        json.dump(metrics, f, indent=2, cls=HighPrecisionEncoder)
+        json.dump(metrics_with_metadata, f, indent=2, cls=HighPrecisionEncoder)
     
-    logger.info(f"Saved evaluation results")
+    logger.info(f"Saved evaluation results to {output_path}")
+    
+    # Also save a copy with timestamp in the filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamped_path = output_path.parent / f"semantic_evaluation_results_{timestamp}.json"
+    with open(timestamped_path, 'w') as f:
+        json.dump(metrics_with_metadata, f, indent=2, cls=HighPrecisionEncoder)
+    logger.info(f"Saved timestamped copy to {timestamped_path}")
 
 def main():
     # Start timing
@@ -277,19 +363,24 @@ def main():
     # Configuration parameters
     data_dir = "data/seattle"
     city = "seattle"
-    output_path = "data/evaluation/semantic_evaluation_results.json"
-    num_users = 100  # Number of users to evaluate (set to 0 for all users)
+    output_dir = Path("data/evaluation")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "semantic_evaluation_results.json"
+    
+    # Model parameters
+    num_users = 2  # Number of users to evaluate (set to 0 for all users)
     min_rating = 4.81
     min_chars = 50
     top_k = 20
     alpha = 0.5
-    use_pairwise = False
+    use_pairwise = True
     llm_model = "llama3.2"  # Using llama3.2 model instead of phi3.5
     random_seed = 42
     
     # Log configuration
     logger.info(f"Starting semantic evaluation with {num_users if num_users > 0 else 'all'} users")
     logger.info(f"Configuration: min_rating={min_rating}, min_chars={min_chars}, top_k={top_k}, alpha={alpha}, use_pairwise={use_pairwise}, llm_model={llm_model}")
+    logger.info(f"Results will be saved to {output_path}")
     
     # Load data
     df_reviews, df_listings = load_data(data_dir, city)
@@ -320,14 +411,35 @@ def main():
     )
     
     # Save evaluation results
-    save_evaluation_results(metrics, output_path)
+    save_evaluation_results(
+        metrics=metrics,
+        output_path=output_path,
+        llm_model=llm_model,
+        use_pairwise=use_pairwise,
+        top_k=top_k,
+        alpha=alpha,
+        min_rating=min_rating,
+        min_chars=min_chars,
+        num_users=num_users
+    )
     
     # Calculate and log total execution time
     end_time = time.time()
     execution_time = end_time - start_time
     hours, remainder = divmod(execution_time, 3600)
     minutes, seconds = divmod(remainder, 60)
-    logger.info(f"Total execution time: {int(hours)}h {int(minutes)}m {seconds:.4f}s")
+    logger.info(f"Total execution time: {int(hours)}h {int(minutes)}m {seconds:.5f}s")
+    
+    # Print summary of results
+    logger.info("\nEvaluation Results Summary:")
+    logger.info(f"Total users evaluated: {metrics['total_users']}")
+    logger.info(f"Hit rate at k={top_k}: {metrics['hit_rate_at_k']:.5f}")
+    logger.info(f"Hit rate at k=5: {metrics['hit_rate_at_5']:.5f}")
+    logger.info(f"Hit rate at k=10: {metrics['hit_rate_at_10']:.5f}")
+    logger.info(f"Hit rate at k=20: {metrics['hit_rate_at_20']:.5f}")
+    logger.info(f"MRR@{top_k}: {metrics[f'mrr@{top_k}']:.5f}")
+    logger.info(f"NDCG@{top_k}: {metrics[f'ndcg@{top_k}']:.5f}")
+    logger.info(f"Not found: {metrics['not_found']} ({metrics['not_found']/metrics['total_users']*100:.5f}%)")
 
 if __name__ == "__main__":
     main() 

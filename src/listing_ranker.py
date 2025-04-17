@@ -454,3 +454,100 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
         
         logger.info(f"op={op} Returning top {top_k} candidates")
         return ranked_candidates.head(top_k)
+        
+    def _compare_pair_with_query(self, item1, item2, query_text):
+        """Compare two items using LLM to determine which is more relevant to a query."""
+        op = "ListingRanker._compare_pair_with_query"
+        
+        prompt = f"""Given a user's query and two items, determine which item is more relevant to the query.
+User's query: {query_text}
+Item 1: {item1['name']} - {item1['description']}
+Item 2: {item2['name']} - {item2['description']}
+
+Which item is more relevant to the query? Answer with just '1' or '2'."""
+
+        logger.debug(f"op={op} Sending prompt to LLM: {prompt[:100]}...")
+        response = ollama.chat(model=f'{self.llm_model}:latest', messages=[
+            {
+                'role': 'user',
+                'content': prompt
+            }
+        ])
+        
+        # Parse response to determine if items should be swapped
+        answer = response['message']['content'].strip().lower()
+        logger.debug(f"op={op} LLM response: {answer}")
+        return answer == '2'  # Return True if items should be swapped
+
+    def retrieve_by_query(self, query_text, candidates, interaction_data, top_k=5, alpha=0.5, use_pairwise=False):
+        """
+        Retrieve and rank candidate items based on a direct query text.
+        
+        Args:
+            query_text (str): The query text to use for ranking
+            candidates (pd.DataFrame): DataFrame containing candidate items
+            interaction_data (pd.DataFrame): Full interaction data for collaborative filtering
+            top_k (int): Number of top recommendations to return
+            alpha (float): Weight between semantic and collaborative relationships (0 to 1)
+            use_pairwise (bool): Whether to use pair-wise ranking with LLM
+            
+        Returns:
+            pd.DataFrame: Top-k ranked candidate items with scores
+        """
+        op = "ListingRanker.retrieve_by_query"
+        logger.info(f"op={op} Retrieving candidates with query text, top_k={top_k}, alpha={alpha}, use_pairwise={use_pairwise}")
+        
+        # Compute relationship matrices if not already done
+        if self.item_relationship_matrix is None:
+            self.compute_semantic_relationship_matrix()
+        
+        if self.user_item_matrix is None:
+            self.compute_collaborative_relationship_matrix(interaction_data)
+        
+        # For query-based retrieval, we'll use a different approach than user history
+        # We'll directly compute semantic similarity between the query and each candidate
+        
+        # Generate embedding for the query
+        query_embedding = self._generate_item_embeddings([query_text])[0]
+        
+        # Generate embeddings for all candidates
+        candidate_prompts = candidates.apply(self._construct_item_description, axis=1)
+        candidate_embeddings = self._generate_item_embeddings(candidate_prompts)
+        
+        # Compute cosine similarity between query and all candidates
+        similarities = []
+        for i, candidate_embedding in enumerate(candidate_embeddings):
+            similarity = np.dot(query_embedding, candidate_embedding) / (
+                np.linalg.norm(query_embedding) * np.linalg.norm(candidate_embedding)
+            )
+            similarities.append(similarity)
+        
+        # Create a DataFrame with scores
+        scores_df = pd.DataFrame({
+            'listing_id': candidates['listing_id'],
+            'score': similarities
+        })
+        
+        # Sort by score
+        ranked_candidates = candidates.merge(scores_df, on='listing_id').sort_values('score', ascending=False)
+        
+        # Apply pair-wise ranking if requested
+        if use_pairwise:
+            logger.info(f"op={op} Using LLM model '{self.llm_model}' for pair-wise ranking...")
+            
+            # Take top candidates for pairwise ranking
+            top_candidates = ranked_candidates.head(top_k*3)
+            
+            # Use sliding window of size 2 to compare adjacent pairs
+            for i in range(len(top_candidates) - 1):
+                item1 = top_candidates.iloc[i]
+                item2 = top_candidates.iloc[i + 1]
+                
+                # Compare pair and swap if needed
+                if self._compare_pair_with_query(item1, item2, query_text):
+                    top_candidates.iloc[i], top_candidates.iloc[i + 1] = top_candidates.iloc[i + 1], top_candidates.iloc[i]
+            
+            ranked_candidates = top_candidates.head(top_k)
+        
+        logger.info(f"op={op} Returning top {top_k} candidates")
+        return ranked_candidates.head(top_k)
