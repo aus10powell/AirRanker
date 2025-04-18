@@ -404,7 +404,7 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
         logger.info(f"op={op} Initial score calculation complete")
         return result
 
-    def retrieve_candidates(self, user_history, candidates, interaction_data, top_k=5, alpha=0.5, use_pairwise=False):
+    def retrieve_candidates(self, user_history, candidates, interaction_data, top_k=5, alpha=0.5, use_pairwise=False, top_k_multiplier=3):
         """
         Retrieve and rank candidate items based on user history.
         
@@ -415,6 +415,7 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
             top_k (int): Number of top recommendations to return
             alpha (float): Weight between semantic and collaborative relationships (0 to 1)
             use_pairwise (bool): Whether to use pair-wise ranking with LLM
+            top_k_multiplier (int): Multiplier for top_k when using pairwise ranking to limit LLM calls
             
         Returns:
             pd.DataFrame: Top-k ranked candidate items with scores
@@ -437,7 +438,8 @@ Which item is more relevant to recommend next? Answer with just '1' or '2'."""
         if use_pairwise:
             logger.info(f"op={op} Using LLM model '{self.llm_model}' for pair-wise ranking...")
 
-            reduced_ranked_candidates = ranked_candidates.head(top_k*3)
+            logger.info(f"op={op}. retrieving top {top_k*top_k_multiplier} candidates for pairwise ranking from {len(ranked_candidates)} candidates")   
+            reduced_ranked_candidates = ranked_candidates.head(top_k*top_k_multiplier)
             logger.info(f"op={op} num reduced_ranked_candidates={len(reduced_ranked_candidates)}")
 
             # Use sliding window of size 2 to compare adjacent pairs
@@ -479,7 +481,7 @@ Which item is more relevant to the query? Answer with just '1' or '2'."""
         logger.debug(f"op={op} LLM response: {answer}")
         return answer == '2'  # Return True if items should be swapped
 
-    def retrieve_by_query(self, query_text, candidates, interaction_data, top_k=5, alpha=0.5, use_pairwise=False):
+    def retrieve_by_query(self, query_text, candidates, interaction_data, top_k=5, alpha=0.5, use_pairwise=False, top_k_multiplier=3):
         """
         Retrieve and rank candidate items based on a direct query text.
         
@@ -490,6 +492,7 @@ Which item is more relevant to the query? Answer with just '1' or '2'."""
             top_k (int): Number of top recommendations to return
             alpha (float): Weight between semantic and collaborative relationships (0 to 1)
             use_pairwise (bool): Whether to use pair-wise ranking with LLM
+            top_k_multiplier (int): Multiplier for top_k when using pairwise ranking to limit LLM calls
             
         Returns:
             pd.DataFrame: Top-k ranked candidate items with scores
@@ -536,7 +539,8 @@ Which item is more relevant to the query? Answer with just '1' or '2'."""
             logger.info(f"op={op} Using LLM model '{self.llm_model}' for pair-wise ranking...")
             
             # Take top candidates for pairwise ranking
-            top_candidates = ranked_candidates.head(top_k*3)
+            logger.info(f"op={op}. retrieving top {top_k*top_k_multiplier} candidates for pairwise ranking from {len(ranked_candidates)} candidates")
+            top_candidates = ranked_candidates.head(top_k*top_k_multiplier)
             
             # Use sliding window of size 2 to compare adjacent pairs
             for i in range(len(top_candidates) - 1):

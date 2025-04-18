@@ -182,7 +182,8 @@ def simulate_recommendation_scenario(
     top_k: int = 20,
     alpha: float = 0.5,
     use_pairwise: bool = False,
-    llm_model: str = 'llama3.2'
+    llm_model: str = 'llama3.2',
+    top_k_multiplier: int = 3
 ) -> Dict[str, Any]:
     """
     Simulate a recommendation scenario for each pseudo-user in the evaluation dataset.
@@ -195,6 +196,7 @@ def simulate_recommendation_scenario(
         alpha: Weight between semantic and collaborative relationships
         use_pairwise: Whether to use pair-wise ranking with LLM
         llm_model: Name of the LLM model to use for pairwise ranking
+        top_k_multiplier: Multiplier for top_k when using pairwise ranking to limit LLM calls
         
     Returns:
         Dictionary with evaluation metrics
@@ -233,7 +235,8 @@ def simulate_recommendation_scenario(
                 interaction_data=reviews_df,
                 top_k=top_k,
                 alpha=alpha,
-                use_pairwise=use_pairwise
+                use_pairwise=use_pairwise,
+                top_k_multiplier=top_k_multiplier
             )
         except ConnectionError as e:
             logger.error(f"Connection error with Ollama: {e}")
@@ -299,7 +302,8 @@ def save_evaluation_results(
     alpha: float,
     min_rating: float,
     min_chars: int,
-    num_users: int
+    num_users: int,
+    top_k_multiplier: int = 3
 ):
     """
     Save evaluation results to file.
@@ -314,6 +318,7 @@ def save_evaluation_results(
         min_rating: Minimum rating threshold used
         min_chars: Minimum characters in review text
         num_users: Number of users evaluated
+        top_k_multiplier: Multiplier for top_k when using pairwise ranking
     """
     logger.info(f"Saving evaluation results to {output_path}...")
     output_path = Path(output_path)
@@ -333,7 +338,8 @@ def save_evaluation_results(
             'alpha': alpha,
             'min_rating': min_rating,
             'min_chars': min_chars,
-            'num_users': num_users
+            'num_users': num_users,
+            'top_k_multiplier': top_k_multiplier
         }
     }
     
@@ -368,18 +374,19 @@ def main():
     output_path = output_dir / "semantic_evaluation_results.json"
     
     # Model parameters
-    num_users = 2  # Number of users to evaluate (set to 0 for all users)
+    num_users = 400  # Number of users to evaluate (set to 0 for all users)
     min_rating = 4.81
     min_chars = 50
     top_k = 20
     alpha = 0.5
     use_pairwise = True
     llm_model = "llama3.2"  # Using llama3.2 model instead of phi3.5
+    top_k_multiplier = 3  # Multiplier for top_k when using llm ranking (e.g. pairwise ranking)
     random_seed = 42
     
     # Log configuration
     logger.info(f"Starting semantic evaluation with {num_users if num_users > 0 else 'all'} users")
-    logger.info(f"Configuration: min_rating={min_rating}, min_chars={min_chars}, top_k={top_k}, alpha={alpha}, use_pairwise={use_pairwise}, llm_model={llm_model}")
+    logger.info(f"Configuration: min_rating={min_rating}, min_chars={min_chars}, top_k={top_k}, alpha={alpha}, use_pairwise={use_pairwise}, llm_model={llm_model}, top_k_multiplier={top_k_multiplier}")
     logger.info(f"Results will be saved to {output_path}")
     
     # Load data
@@ -407,7 +414,8 @@ def main():
         top_k=top_k,
         alpha=alpha,
         use_pairwise=use_pairwise,
-        llm_model=llm_model
+        llm_model=llm_model,
+        top_k_multiplier=top_k_multiplier
     )
     
     # Save evaluation results
@@ -420,7 +428,8 @@ def main():
         alpha=alpha,
         min_rating=min_rating,
         min_chars=min_chars,
-        num_users=num_users
+        num_users=num_users,
+        top_k_multiplier=top_k_multiplier
     )
     
     # Calculate and log total execution time
