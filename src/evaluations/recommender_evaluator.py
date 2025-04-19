@@ -8,7 +8,7 @@ import random
 from datetime import datetime
 import json
 import time
-from listing_ranker import ListingRanker
+from src.listing_ranker import ListingRanker
 
 class RecommenderEvaluator:
     def __init__(self, ranker, df_listings, df_reviews, metrics=None):
@@ -29,13 +29,14 @@ class RecommenderEvaluator:
         # Extract unique user IDs
         self.user_ids = df_reviews['reviewer_id'].unique()
         
-    def prepare_holdout_set(self, test_size=0.2, min_reviews=3, random_state=42):
+    def prepare_holdout_set(self, test_size=0.2, min_reviews=None, max_reviews=None, random_state=42):
         """
         Split users into train and test sets
         
         Args:
             test_size: Proportion of users to include in the test set
             min_reviews: Minimum number of reviews required for a user to be included
+            max_reviews: Maximum number of reviews allowed for a user to be included
             random_state: Random seed for reproducibility
             
         Returns:
@@ -47,9 +48,20 @@ class RecommenderEvaluator:
         
         # Filter users with enough reviews
         user_review_counts = self.df_reviews['reviewer_id'].value_counts()
-        eligible_users = user_review_counts[user_review_counts >= min_reviews].index.tolist()
         
-        print(f"Found {len(eligible_users)} users with at least {min_reviews} reviews")
+        # Apply min and max review filters
+        if min_reviews is not None:
+            user_review_counts = user_review_counts[user_review_counts >= min_reviews]
+        if max_reviews is not None:
+            user_review_counts = user_review_counts[user_review_counts <= max_reviews]
+            
+        eligible_users = user_review_counts.index.tolist()
+        
+        print(f"Found {len(eligible_users)} users with reviews in the specified range")
+        if min_reviews is not None:
+            print(f"Minimum reviews: {min_reviews}")
+        if max_reviews is not None:
+            print(f"Maximum reviews: {max_reviews}")
         
         # Skip if not enough eligible users
         if len(eligible_users) < 5:
@@ -77,10 +89,6 @@ class RecommenderEvaluator:
         # For each test user, split their reviews into history and holdout
         for user_id in tqdm(test_users, desc="Preparing holdout data"):
             user_reviews = self.df_reviews[self.df_reviews['reviewer_id'] == user_id].copy()
-            
-            # Skip if user has no reviews
-            if len(user_reviews) == 0:
-                continue
             
             # Sort reviews by date
             try:
@@ -547,7 +555,7 @@ class RandomRanker:
         return candidates.sample(frac=1, random_state=self.random_state).reset_index(drop=True).head(top_k)
 
 # Example usage script
-def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all-MiniLM-L6-v2', sample_size=200, random_state=42, k=10, use_pairwise=False):
+def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all-MiniLM-L6-v2', sample_size=200, random_state=42, k=10, use_pairwise=False, min_reviews=None, max_reviews=None):
     """
     Run a complete evaluation of recommender systems
     
@@ -560,11 +568,14 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
         random_state: Random seed for reproducibility
         k: Number of recommendations to evaluate
         use_pairwise: Whether to use pair-wise ranking with LLM
+        min_reviews: Minimum number of reviews required for a user to be included
+        max_reviews: Maximum number of reviews allowed for a user to be included
         
     Returns:
         pd.DataFrame: Comparison results
     """
     print("Initializing evaluation...")
+    print(f"Review filters: min_reviews={min_reviews}, max_reviews={max_reviews}")
     
     # Set random seeds for reproducibility
     random.seed(random_state)
@@ -585,7 +596,8 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
     print("Preparing holdout data...")
     holdout_data = evaluator.prepare_holdout_set(
         test_size=0.8,
-        min_reviews=3
+        min_reviews=min_reviews,
+        max_reviews=max_reviews
     )
     
     if not holdout_data['test_users']:
@@ -621,9 +633,12 @@ def run_evaluation(df_listings, df_reviews, llm_model=None, embedding_model='all
     comparison_results['llm_model'] = llm_model if llm_model else 'phi4'
     comparison_results['embedding_model'] = embedding_model
     comparison_results['use_pairwise'] = use_pairwise
+    comparison_results['min_reviews'] = min_reviews
+    comparison_results['max_reviews'] = max_reviews
     
     print("\nModel comparison:")
-    print(comparison_results[['model', 'ndcg@k', 'precision@k', 'recall@k', 'hits@k', 'diversity', 'coverage', 'mrr', 'latency', 'llm_model', 'embedding_model', 'use_pairwise']])
+    print(f"Review filters: min_reviews={min_reviews}, max_reviews={max_reviews}")
+    print(comparison_results[['model', 'ndcg@k', 'precision@k', 'recall@k', 'hits@k', 'diversity', 'coverage', 'mrr', 'latency', 'llm_model', 'embedding_model', 'use_pairwise', 'min_reviews', 'max_reviews']])
     
     # Plot comparison
     print("Generating comparison plot...")
