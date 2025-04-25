@@ -1,9 +1,9 @@
 # AirRanker
 
 ## **Objective**
-Develop a recommendation system for Airbnb listings that can be expanded to different regions. The system will leverage listing metadata, user reviews, and embeddings to rank recommendations using **StarRanker**.
+Build a system that ranks Airbnb listings by understanding plain-language intent, leveraging listing metadata, user reviews, and embeddings with **StarRanker**. The system aims to serve users with little or no booking history and can be expanded to different regions. An LLM agent will parse queries and drive the pipeline.
 
-### 🧠 Who This Is For
+## 🧠 Who This Is For
 
 #### ✅ 1. New or Infrequent Airbnb Users
 - These users don't have much past data, so normal recommenders don't work well.
@@ -64,10 +64,10 @@ The comparison demonstrates the performance across different metrics, with the L
 
 ---
 
-## **Phases of the Project**
+## **Phases**
 
 ### **1. Data Collection & Preprocessing**
-**Goal:** Prepare raw Airbnb datasets for recommendation.  
+**Goal:** Prepare raw Airbnb datasets for recommendation, focusing initially on one region (Seattle).
 #### **Tasks:**
 - ✅ Load Airbnb dataset (listings, reviews, calendar availability).
 - ✅ Extract relevant features:
@@ -83,70 +83,129 @@ The comparison demonstrates the performance across different metrics, with the L
 
 ---
 
-### **2. Building the Recommendation System**
-**Goal:** Implement **StarRanker-based** personalized listing ranking.  
+### **2. Recommendation Engine (StarRanker)**
+**Goal:** Implement **StarRanker-based** listing ranking driven by natural language queries.
 
-#### **How the List Ranker Works**
-The recommendation system uses a sophisticated ranking approach that combines semantic understanding with user preferences:
+#### **2.1 Candidate Generation**
+- Implement initial filtering to select a manageable subset of listings (e.g., top 30) before pairwise ranking.
+- Methods:
+    - Simple filters based on explicit criteria (price, location radius, essential amenities).
+    - Collaborative filtering (if user history is available and desired).
+    - Basic semantic search or keyword matching against the query.
 
-1. **Semantic Understanding**:
-   - Each listing is converted into a rich representation using embeddings
-   - These embeddings capture the semantic meaning of:
-     - Listing descriptions
-     - Amenities
-     - Location information
-     - Review content
+#### **2.2 Pairwise LLM Reranking (StarRanker)**
+- **Core Idea:** Compare pairs of candidate listings against the user's query using an LLM (`StarRanker`).
+- **Process:**
+    1. **Semantic Understanding**: Each listing is represented by its features and embeddings (description, reviews, amenities, location).
+    2. **Pairwise Comparison**: For each pair of listings (A, B) from the candidate set, `StarRanker` determines which listing is a better match for the user's query. This approach is more robust than absolute scoring as it:
+        - Reduces bias from different feature scales.
+        - Better captures relative preferences.
+        - Works well even with sparse or no user data (zero-shot).
+        *This ranking approach is based on the STAR (Simple Training-free Approach for Recommendations) paper [arXiv:2410.16458](https://arxiv.org/abs/2410.16458), which demonstrates the effectiveness of using large language models for recommendations without requiring fine-tuning.*
+    3. **Aggregation**: Aggregate the pairwise comparison results (e.g., counting "wins" for each listing) to produce a final ranked list.
+- Ensure the model can generalize to different locations (starting with Seattle).
 
-2. **Pairwise Ranking (StarRanker)**:
-   - Instead of scoring listings individually, the system compares pairs of listings
+#### **2.3 Evaluation**
+**Goal:** Evaluate ranking quality using various methods.
+- **Metrics:** Use standard ranking metrics:
+    - **MRR (Mean Reciprocal Rank):** Measures if the correct/relevant listing appears early.
+    - **Hit@K:** Checks if the true/relevant listing appears in the top-K results.
+    - **NDCG (Normalized Discounted Cumulative Gain):** Measures overall ranking quality.
+- **Evaluation Strategies:**
+    - **Hide-and-Rank (for "cold users"):**
+        - For each user in the cold-user hold-out set, hide one listing they reviewed positively.
+        - Use the user's review text (or a synthetic query based on it) as input.
+        - Rank the remaining listings (including non-reviewed ones).
+        - Measure Hit@K, MRR, NDCG for the hidden listing.
+    - **Text-Matching Evaluation:**
+        - Treat a long, high-score review (> 15 tokens, rating ≥ 4.8) as a natural language query.
+        - Rank all listings in the region based on this "query".
+        - Check if the listing the review belongs to ranks highly.
+    - **Synthetic Query Evaluation:**
+        - Generate plausible user queries based on listing descriptions (e.g., "An apartment near the park with a nice kitchen").
+        - Rank all listings for each synthetic query.
+        - Measure if the original source listing ranks near the top.
+    - **Baseline Comparison:** Compare `StarRanker` performance against:
+        - Naive popularity-based methods (e.g., most-reviewed or highest-rated).
+        - Random ranking.
+    - **Sanity Checks:**
+        - Does the model preferably rank higher-rated listings for relevant queries?
+        - Does ranking change meaningfully with different price constraints or amenity requests?
+        
+  - Instead of scoring listings individually, the system compares pairs of listings
    - For each pair, it determines which listing is more likely to be preferred
    - This approach is more robust than absolute scoring as it:
      - Reduces bias from different scales of features
      - Better captures relative preferences
      - Works well even with sparse user data
    
-   *This ranking approach is based on the STAR (Simple Training-free Approach for Recommendations) paper [arXiv:2410.16458](https://arxiv.org/abs/2410.16458), which demonstrates the effectiveness of using large language models for recommendations without requiring fine-tuning.*
+   *This ranking approach is based on the STAR (Simple Training-free Approach for Recommendations) paper [arXiv:2410.16458]
+   (https://arxiv.org/abs/2410.16458), which demonstrates the effectiveness of using large language models for recommendations 
+   without requiring fine-tuning.*
 
 3. **Zero-Shot Capability**:
    - The system can rank new listings without requiring historical data
    - Uses semantic understanding to infer preferences
    - Adapts to different regions and property types
+---
 
-4. **Final Ranking Process**:
-   - Aggregates pairwise comparisons into a final ranking
-   - Considers multiple factors:
-     - Semantic similarity to user preferences
-     - Price range compatibility
-     - Property type preferences
-     - Location preferences
-   - Returns a personalized list of recommendations
-
-#### **Tasks:**
-- ✅ **Generate embeddings** for listings using text, amenities, and location data.
-- ✅ Implement **pairwise ranking (StarRanker) for zero-shot ranking** of listings.
-- ✅ Ensure model can be **generalized to different locations** (Seattle first).
-- ✅ Implement **filters** (price range, property type, availability).
-- ✅ Store **precomputed embeddings** for fast retrieval.
+### **4. Agent Prototype & Tooling**
+**Goal:** Build an agent that uses the `StarRanker` engine to answer user queries.
+#### **Components:**
+- **`search_agent.py`:**
+    - Takes plain-language user query as input.
+    - Calls an LLM (or uses rule-based parsing initially) to extract structured filters (price, location, amenities) and semantic keywords/intent.
+    - Uses `agents/tools/listing_filter.py` to apply structured filters to the full listing set, producing candidates.
+    - Uses `agents/tools/ranker_tool.py` to invoke the `StarRanker` pairwise reranking (Phase 2.2) on the filtered candidates based on the semantic query aspects.
+    - Returns the top 5 ranked listings with brief summaries or justifications ("why this was chosen").
+- **`agents/tools/`:**
+    - **`listing_filter.py`:** Module responsible for applying structured filters (price, location, amenities, availability) to the listing data.
+    - **`ranker_tool.py`:** Wrapper around the `StarRanker` implementation, handling the pairwise comparison logic and result aggregation for a given query and candidate set.
 
 ---
 
-### **3. Validation & Metrics**
-**Goal:** Evaluate ranking quality against **actual user choices**.  
+### **4. Agent Evaluation**
+**Goal:** Evaluate the end-to-end performance of the `search_agent`.
 #### **Tasks:**
-- ✅ **Hold-out validation:**
-  - Check if booked listings appear in top recommendations.
-  - Compare model predictions with actual booking behavior.
-- ✅ **Ranking Metrics:**
-  - **MRR (Mean Reciprocal Rank):** Measures if correct listing appears early.
-  - **Hit@K:** Checks if true booking appears in top-K results.
-  - **NDCG (Normalized Discounted Cumulative Gain):** Measures ranking quality.
-- ✅ **Sanity Checks:**
-  - Does the model **preferably rank higher-rated listings**?
-  - Does ranking **change meaningfully with different price ranges**?
-- ✅ **Baseline Comparison:**
-  - Compare **StarRanker vs. a naive popularity-based method** (e.g., most-reviewed listings).
+- **Synthetic Query Testing:**
+    - Reuse the synthetic queries generated in Phase 2.3.
+    - Feed these queries to `search_agent.py`.
+    - Measure if the agent's top results include the original source listing (using Hit@K, MRR).
+- **LLM as Judge:**
+    - For a sample of real or synthetic queries, present the agent's top 5 results to another LLM (e.g., GPT-4).
+    - Ask the judge LLM to score the relevance of each result to the query.
+    - Compare these relevance scores against baseline methods (e.g., standard sort, random picks).
+- **User-Proxy Metrics:**
+    - Apply metrics like Hit@K and MRR to the agent's output using the hold-out data (similar to Phase 2.3, but evaluating the agent's final output).
+    - Check how often the agent's top result matches the truly booked/reviewed listing for the hold-out users.
 
-#### **Evaluation Results**
+---
+
+### **5. Streamlit App & Deployment**
+**Goal:** Create a simple user interface and prepare for potential deployment.
+#### **Tasks:**
+- Build a basic Streamlit application:
+    - Input field for user queries.
+    - Display area for the top 5 listing results (e.g., as cards).
+    - Show justifications ("why this was chosen") provided by the agent.
+    - Optional: Toggle between "LLM Agent Mode" and a "Standard Sort" (e.g., by price or rating) for comparison.
+- Implement caching:
+    - Cache embeddings to avoid recomputation.
+    - Cache ranking results for common queries or candidate sets if feasible.
+- Initial deployment testing:
+    - Test latency and resource usage on a small cloud instance (e.g., containerized application).
+
+---
+
+## **Initial Evaluation Results**
+_(This section reflects results from earlier development stages based on the previous README structure)_
+
+Our initial evaluation comparing three different ranking approaches (LLM-based, Popularity-based, and Random) shows promising results:
+
+![Initial Results](model_output/initial_results.png)
+
+The comparison demonstrates the performance across different metrics, with the LLM-based ranker showing superior performance in NDCG and precision metrics, while the popularity-based ranker performs well in recall.
+
 We compared three different ranking approaches:
 1. **LLM-based Ranker**: Uses semantic understanding to rank listings
 2. **Popularity-based Ranker**: Ranks listings by number of reviews
@@ -209,7 +268,7 @@ The all-mpnet-base-v2 model demonstrated:
 
 *Note: Future evaluations will include Phi-4 and Llama 3.1 models for comparison.*
 
-### 3. all-MiniLM-L6-v2 Model Results
+###### **all-MiniLM-L6-v2 Model Results**
 - **Holdout Sample Size**: 200 users
 - **Test Size**: 80% of users
 - **Minimum Reviews per User**: 3
@@ -248,8 +307,6 @@ The all-mpnet-base-v2 model demonstrated:
   - Recall: 0.007500
   - Diversity: 0.734667
   - Coverage: 0.219793
-  - MRR: 0.001125
-  - Latency: 0.000404 seconds
 
 **Analysis**:
 - The all-MiniLM-L6-v2 model achieves the highest diversity score (0.754)
