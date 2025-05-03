@@ -164,6 +164,27 @@ The comparison demonstrates the performance across different metrics, with the L
 
 ---
 
+## 🧠 Agent Methods
+
+In early iterations, the agent may follow simple rule-based heuristics or retrieval-augmented prompting (RAG) to construct Airbnb summaries from raw reviews. However, as the system matures, more advanced agent planning methods can be integrated. These include:
+
+- **Toolformer-style fine-tuning** ([Schick et al., 2023](https://arxiv.org/abs/2302.04761)) to allow models to autonomously decide when to call external tools like sentiment classifiers or metadata parsers.
+- **Function calling + dynamic plans** using open-source frameworks like LangChain, CrewAI, or DSPy to break tasks (e.g. "summarize safety concerns" or "rank amenities by sentiment") into callable steps.
+- **ReAct-style prompting** ([Yao et al., 2022](https://arxiv.org/abs/2210.03629)) to let the LLM iterate between reasoning and tool use while tracing intermediate decisions.
+- **AutoGPT-style agent loops** with constrained action space, enabling broader goal decomposition (e.g. "write a family-friendly summary using reviews and listing metadata").
+
+These methods offer varying degrees of controllability, interpretability, and modularity. A hybrid approach may be appropriate—e.g., combining function-calling agents with structured metadata parsers and chunked review embeddings.
+
+### 📚 Suggested References
+- **ReAct: Synergizing Reasoning and Acting in Language Models**  
+  Yao et al. (2022) – [https://arxiv.org/abs/2210.03629](https://arxiv.org/abs/2210.03629)
+- **Toolformer: Language Models Can Teach Themselves to Use Tools**  
+  Schick et al. (2023) – [https://arxiv.org/abs/2302.04761](https://arxiv.org/abs/2302.04761)
+- **DSPy: Programming Language Models with Declarative Runtimes**  
+  Arora et al. (2024) – [https://arxiv.org/abs/2402.19118](https://arxiv.org/abs/2402.19118)
+- **Survey of LLM Agents** (2024) – [https://arxiv.org/abs/2402.10900](https://arxiv.org/abs/2402.10900)
+
+
 ### **4. Agent Evaluation**
 **Goal:** Evaluate the end-to-end performance of the `search_agent`.
 #### **Tasks:**
