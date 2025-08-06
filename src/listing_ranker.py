@@ -4,6 +4,9 @@ import json
 import pandas as pd
 import numpy as np
 import logging
+import os
+import hashlib
+from pathlib import Path
 from pprint import pprint
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -40,6 +43,7 @@ class ListingRanker:
         self.listings_df = listings_df
         self.reviews_df = reviews_df
         self.llm_model = llm_model
+        self.embedding_model_name = embedding_model
         
         # Check if MPS is available
         self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -73,6 +77,65 @@ class ListingRanker:
             
         # Convert to float32 before returning
         return embeddings.numpy().astype(np.float32)
+
+    def _get_or_create_candidate_embeddings(self, candidates):
+        """
+        Get embeddings for candidate listings, using cache if available.
+        
+        Args:
+            candidates (pd.DataFrame): DataFrame containing candidate listings
+            
+        Returns:
+            tuple: (candidate_embeddings, listing_ids) where embeddings are numpy array
+        """
+        op = "ListingRanker._get_or_create_candidate_embeddings"
+        
+        # Create a hash of the candidate listing IDs to use as part of cache key
+        listing_ids = sorted(candidates['listing_id'].tolist())
+        listing_ids_str = ','.join(map(str, listing_ids))
+        listings_hash = hashlib.md5(listing_ids_str.encode()).hexdigest()[:8]
+        
+        # Create cache filename
+        cache_dir = Path("cache")
+        cache_dir.mkdir(exist_ok=True)
+        cache_filename = f"candidate_embeddings_{self.embedding_model_name}_{listings_hash}.npz"
+        cache_path = cache_dir / cache_filename
+        
+        # Try to load from cache
+        if cache_path.exists():
+            logger.info(f"op={op} Loading candidate embeddings from cache: {cache_path}")
+            try:
+                cached_data = np.load(cache_path)
+                cached_embeddings = cached_data['embeddings']
+                cached_listing_ids = cached_data['listing_ids'].tolist()
+                
+                # Verify that cached data matches current candidates
+                if cached_listing_ids == listing_ids:
+                    logger.info(f"op={op} Cache hit! Loaded {len(cached_embeddings)} embeddings")
+                    return cached_embeddings, listing_ids
+                else:
+                    logger.info(f"op={op} Cache miss - listing IDs don't match")
+            except Exception as e:
+                logger.warning(f"op={op} Failed to load cache: {e}")
+        
+        # Generate embeddings if not cached or cache miss
+        logger.info(f"op={op} Generating embeddings for {len(candidates)} candidates...")
+        candidate_prompts = candidates.apply(self._construct_item_description, axis=1)
+        candidate_embeddings = self._generate_item_embeddings(candidate_prompts)
+        
+        # Save to cache
+        try:
+            logger.info(f"op={op} Saving embeddings to cache: {cache_path}")
+            np.savez_compressed(
+                cache_path,
+                embeddings=candidate_embeddings,
+                listing_ids=np.array(listing_ids)
+            )
+            logger.info(f"op={op} Successfully cached {len(candidate_embeddings)} embeddings")
+        except Exception as e:
+            logger.warning(f"op={op} Failed to save cache: {e}")
+        
+        return candidate_embeddings, listing_ids
 
     def compute_semantic_relationship_matrix(self):
         """Compute semantic relationships between items using embeddings."""
@@ -517,21 +580,15 @@ Which item is more relevant to the query? Answer with just '1' or '2'."""
         # Generate embedding for the query
         query_embedding = self._generate_item_embeddings([query_text])[0]
         
-        # Generate embeddings for all candidates
-        candidate_prompts = candidates.apply(self._construct_item_description, axis=1)
-        candidate_embeddings = self._generate_item_embeddings(candidate_prompts)
+        # Get or create embeddings for all candidates (with caching)
+        candidate_embeddings, listing_ids = self._get_or_create_candidate_embeddings(candidates)
         
-        # Compute cosine similarity between query and all candidates
-        similarities = []
-        for i, candidate_embedding in enumerate(candidate_embeddings):
-            similarity = np.dot(query_embedding, candidate_embedding) / (
-                np.linalg.norm(query_embedding) * np.linalg.norm(candidate_embedding)
-            )
-            similarities.append(similarity)
+        # Compute cosine similarity between query and all candidates (vectorized)
+        similarities = cosine_similarity([query_embedding], candidate_embeddings)[0]
         
         # Create a DataFrame with scores
         scores_df = pd.DataFrame({
-            'listing_id': candidates['listing_id'],
+            'listing_id': listing_ids,
             'score': similarities
         })
         
